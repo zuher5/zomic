@@ -179,6 +179,28 @@ Plan:           free
 - Reader image tidak dioptimalkan (legacy `/api/img?url=`) supaya halaman komik
   tetap resolusi tinggi; hanya cover yang di-resize/compress.
 
+## Deploy ke Vercel (Serverless Function)
+
+Vercel menjalankan app sebagai **serverless function** Python (bukan server
+persisten). Konfigurasi sudah disiapkan:
+
+- `api/index.py` — entrypoint ASGI (`from app import app`), auto-deteksi Vercel.
+- `vercel.json` — route semua request ke `api/index.py`, `maxDuration: 60s`.
+
+Cara deploy: import repo `zuher5/zomic` di Vercel → *Import* → Vercel otomatis
+mendeteksi `vercel.json` → *Deploy*. URL: `https://zomic.vercel.app`.
+
+Batasan Vercel yang perlu diketahui:
+
+- **Response body limit ~4.5 MB** (hobby): halaman reader dengan gambar besar
+  bisa gagal dimuat — reader image tidak dioptimalkan demi kualitas.
+- **Timeout function**: default 10s, maksimal 60s (hobby). Upstream komiku.org
+  yang lambat/diblokir DDoS-Guard bisa terkena timeout (tetap retry terbatas).
+- **Filesystem ephemeral**: cache disk (`IMAGE_CACHE_DIR`) hanya bertahan selama
+  instance function hidup; tidak persisten antar-cold-start.
+- Untuk hasil terbaik (tidak ada limit ukuran/timeout), gunakan **Render Web
+  Service** di atas; Vercel cocok untuk uji coba cepat.
+
 ## Keterbatasan (upstream komiku.org)
 
 - REST API pihak ketiga (`api-komiku.vercel.app`) mengabaikan parameter `page`
