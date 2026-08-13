@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "message": "Chapters for the series retrieved successfully",
+  "data": [
+    {"id": 413630, "data": {"slug": null, "title": null, "index": 2, "seriesId": 10288}},
+    {"id": 413629, "data": {"slug": null, "title": null, "index": 1, "seriesId": 10288}},
+    {"id": 413631, "data": {"slug": null, "title": null, "index": 3, "seriesId": 10288}}
+  ]
+}

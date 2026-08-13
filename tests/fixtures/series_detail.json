@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "message": "Series retrieved successfully",
+  "data": {
+    "id": 10288,
+    "data": {
+      "slug": "kidnapped-the-youngest-daughter-of-the-sichuan-tang-family",
+      "type": "project",
+      "isHot": false,
+      "title": "Kidnapped The Youngest Daughter of The Sichuan Tang Family",
+      "author": "SON,오리너구리",
+      "format": "manhwa",
+      "rating": 7,
+      "status": "ongoing",
+      "genreIds": [19, 22, 28, 34, 46, 8],
+      "synopsis": "Demi meredakan rasa lapar, Cheon Hwi mengangkat pedang.",
+      "folderCdn": "Kidnapped_The_Youngest_Daughter_of_The_Sichuan_Tang_Family",
+      "coverImage": "https://minio.imgkc1.my.id/prod/series/kidnapped-the-youngest-daughter-of-the-sichuan-tang-family/cover/COVERPUTRITANG.webp",
+      "genres": [
+        {"id": 19, "data": {"name": "Action", "description": "Action genre"}},
+        {"id": 8, "data": {"name": "Webtoons", "description": "Webtoons genre"}}
+      ]
+    },
+    "createdAt": "2026-07-24T22:59:44.983+07:00"
+  }
+}

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environment / secrets (jangan commit nilai asli)
+.env
+*.env.local
+
+# Logs
+*.log
+server.log
+syntax_error.log
+test_scraper.log
+
+# Archives / artifact
+*.zip
+*Zone.Identifier
+
+# Node (frontend lama)
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+
+# Image cache lokal
+.imgcache/
+zomic-imgcache/
