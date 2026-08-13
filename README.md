@@ -15,7 +15,7 @@ gambar ter-proxy (lolos hotlink protection).
 - Favorit, riwayat baca, penanda chapter sudah dibaca (tersimpan di browser via localStorage)
 - Filter tipe (manga/manhwa/manhua) & huruf awal A–Z
 - Tema gelap/terang
-- Proxy gambar ter-batas: hanya host `*.komiku.org` yang diizinkan (anti-SSRF)
+- Proxy gambar ter-batas: hanya host `*.komiku.org`, `*.komiku.id`, dan `*.komiku.to` yang diizinkan (anti-SSRF)
 
 ## Struktur
 
@@ -131,7 +131,7 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 - `w`: integer 120–800 (tidak pernah upscale).
 - `q`: integer 45–95.
 - `format`: `auto` (AVIF → WebP → JPEG sesuai `Accept`), `original`, `webp`, `avif`.
-- Hanya host `*.komiku.org` dan `*.komiku.id` (tolak localhost/private IP/SSRF).
+- Hanya host `*.komiku.org`, `*.komiku.id`, dan `*.komiku.to` (tolak localhost/private IP/SSRF).
 - Batas download 12 MB dan batas dimensi 25 MP (anti decompression bomb).
 - Cache disk `SHA-256` (url + w + format + q), atomic write, evict tertua saat
   melebihi batas, header `Cache-Control: public, max-age=2592000, immutable`.
@@ -212,8 +212,7 @@ Batasan Vercel yang perlu diketahui:
 
 ## Keamanan
 
-- `/api/img` hanya memproxy host yang berakhiran `komiku.org` atau `komiku.id`
-  (subdomain sesuai, suffix exact match → host seperti `komiku.org.evil.com` ditolak).
+- `/api/img` hanya memproxy host yang berakhiran `komiku.org`, `komiku.id`, atau `komiku.to` (subdomain sesuai, suffix exact match → host seperti `komiku.org.evil.com` ditolak).
   URL ke IP internal (`169.254.*`, `localhost`, alamat LAN) tidak lolos allowlist →
   mencegah SSRF. Scheme selain `http/https` ditolak.
 - Download dibatasi (12 MB) dan dimensi dibatasi (25 MP) untuk mencegah

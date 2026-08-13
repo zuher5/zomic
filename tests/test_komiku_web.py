@@ -1,4 +1,5 @@
 import unittest
+import requests
 from unittest.mock import patch
 
 from komiku_web import KomikuWeb
@@ -119,6 +120,18 @@ class CatalogParseTest(unittest.TestCase):
         with patch.object(KomikuWeb, "_fetch", return_value=BGE_PAGE) as f:
             self.web.by_genre("Action/../etc", 1)
         self.assertIn("genre=actionetc", f.call_args[0][0])
+
+    def test_genre_falls_back_to_alternate_endpoint(self):
+        calls = []
+        def fetch(url):
+            calls.append(url)
+            if len(calls) == 1:
+                raise requests.HTTPError('upstream 502')
+            return BGE_PAGE
+        with patch.object(KomikuWeb, "_fetch", side_effect=fetch):
+            d = self.web.by_genre("action", 2)
+        self.assertEqual(len(d["items"]), 1)
+        self.assertIn("/genre/action/page/2/", calls[1])
 
     def test_genres_dedupes_and_sorts(self):
         with self.fetch(GENRE_PAGE):

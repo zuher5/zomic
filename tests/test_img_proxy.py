@@ -68,6 +68,12 @@ class ImageProxyTest(unittest.TestCase):
         self.assertIn('max-age=86400', r.headers['cache-control'])
         self.assertIn('x-image-cache', r.headers)
 
+    def test_thumbnail_to_host_is_allowed(self):
+        with self._fetch(WEBP_SRC):
+            r = self.client.get('/api/img', params={'url': 'https://thumbnail.komiku.to/new/cover.webp'})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers['content-type'], 'image/webp')
+
     def test_resize_and_webp_format(self):
         with self._fetch(PNG_SRC):
             r = self.client.get('/api/img', params={'url': 'https://img.komiku.org/cover/x.png',

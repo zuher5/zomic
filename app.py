@@ -23,6 +23,16 @@ def get_cache(key):
     if key in cache and cache[key]['exp'] > datetime.now():
         return cache[key]['data']
     return None
+
+def get_stale_cache(key, max_age=21600):
+    """Kembalikan data cache yang baru kedaluwarsa saat upstream sedang gagal."""
+    item = cache.get(key)
+    if not item:
+        return None
+    expired_for = datetime.now() - item['exp']
+    if timedelta(0) <= expired_for <= timedelta(seconds=max_age):
+        return item['data']
+    return None
 def set_cache(key, data, ttl=3600):
     cache[key] = {'data': data, 'exp': datetime.now() + timedelta(seconds=ttl)}
 
@@ -229,17 +239,23 @@ app.add_middleware(
 )
 
 
-def cached(key, producer, ttl=3600):
-    """Ambil dari cache, kalau kosong panggil producer dan bungkus error upstream."""
+def cached(key, producer, ttl=3600, stale_ttl=21600):
+    """Gunakan cache fresh; saat upstream gagal, pakai cache stale yang masih baru."""
     hit = get_cache(key)
     if hit is not None:
         return hit
     try:
         data = producer()
     except requests.HTTPError as e:
+        stale = get_stale_cache(key, stale_ttl)
+        if stale is not None:
+            return stale
         code = e.response.status_code if e.response is not None else 502
         raise HTTPException(status_code=404 if code == 404 else 502, detail=f"upstream {code}")
-    except requests.RequestException as e:
+    except requests.RequestException:
+        stale = get_stale_cache(key, stale_ttl)
+        if stale is not None:
+            return stale
         raise HTTPException(status_code=502, detail="upstream error")
     set_cache(key, data, ttl)
     return data
@@ -314,7 +330,7 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+(-\d+)?$')):
 # ==================== IMAGE PROXY (cover, optimized) ====================
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
 # open proxy / vektor SSRF (bisa dipakai menembak jaringan internal).
-IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id')
+IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to')
 
 def _img_host_allowed(host):
     host = (host or '').lower().split(':')[0]

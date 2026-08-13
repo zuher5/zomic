@@ -263,13 +263,29 @@ class KomikuWeb:
         }
 
     def by_genre(self, genre, page=1):
-        """Daftar komik per genre (10 per halaman)."""
+        """Daftar komik per genre dengan fallback endpoint upstream."""
         genre = re.sub(r'[^a-z0-9\-]', '', (genre or '').lower())
         if not genre:
             return {'items': [], 'page': 1, 'per_page': PER_PAGE_SEARCH, 'genre': '', 'has_next': False}
         page = max(1, int(page))
-        url = f"{SEARCH_HOST}/page/{page}/?post_type=manga&s=&genre={genre}"
-        items = self._dedupe(self._parse_bge(self._fetch(url)))
+        urls = [
+            f"{SEARCH_HOST}/page/{page}/?post_type=manga&s=&genre={genre}",
+            f"{SEARCH_HOST}/genre/{genre}/page/{page}/?post_type=manga",
+        ]
+        last_error = None
+        items = []
+        for index, url in enumerate(urls):
+            try:
+                raw = self._fetch(url)
+                items = self._dedupe(self._parse_bge(raw))
+                # Jika upstream mengembalikan halaman challenge/HTML kosong dengan
+                # status 200, lanjutkan ke endpoint fallback sebelum menyerah.
+                if items or index == len(urls) - 1:
+                    break
+            except requests.RequestException as exc:
+                last_error = exc
+        if not items and last_error is not None and index == len(urls) - 1:
+            raise last_error
         return {
             'items': items,
             'page': page,
