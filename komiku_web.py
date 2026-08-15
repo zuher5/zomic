@@ -268,7 +268,14 @@ class KomikuWeb:
         if not m:
             return ''
         url = _abs_url(m.group(1) or m.group(2) or '')
-        return url if url and 'thumbnail' in url else ''
+        if not url or 'thumbnail' not in url:
+            return ''
+        # Status 200 bukan jaminan isinya portrait: og:image bisa saja banner
+        # landscape. Tolak marker landscape yang terbukti dari data upstream.
+        if any(marker in url for marker in
+               ('manga_img_horizontal', 'resize=240,150', 'resize=450,235')):
+            return ''
+        return url
 
     def catalog(self, page=1, ctype=None, letter=None):
         """Katalog lengkap komiku.org (7.6rb+ komik), 50 per halaman."""

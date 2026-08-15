@@ -134,6 +134,90 @@ class ImageProxyTest(unittest.TestCase):
         self.assertEqual(r.status_code, 502)
 
 
+class FormatAutoVaryTest(unittest.TestCase):
+    """format=auto memilih output dari header Accept → wajib Vary: Accept
+    di semua jalur response, supaya CDN tidak melayani AVIF ke browser yang
+    hanya mendukung JPEG/WebP."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        os.environ['IMAGE_CACHE_DIR'] = cls.tmp
+        import app as app_module
+        importlib.reload(app_module)
+        cls.app = app_module
+        cls.client = TestClient(app_module.app)
+
+    def setUp(self):
+        self.app.cache.clear()
+        for f in os.listdir(self.app.IMAGE_CACHE_DIR):
+            try:
+                os.remove(os.path.join(self.app.IMAGE_CACHE_DIR, f))
+            except OSError:
+                pass
+
+    def _fetch(self, data):
+        ctype = self.app._ctype_from_bytes(data)
+        return patch.object(self.app, '_img_fetch', return_value=(data, ctype))
+
+    def _get(self, accept, **extra):
+        params = {'url': 'https://img.komiku.org/cover/x.png', 'w': 400,
+                  'format': 'auto', 'q': 78, **extra}
+        return self.client.get('/api/img', params=params,
+                               headers={'Accept': accept})
+
+    def test_avif_accept_gets_matching_type_and_vary(self):
+        with self._fetch(PNG_SRC):
+            r = self._get('image/avif,image/webp,image/*')
+        self.assertEqual(r.status_code, 200)
+        expected = 'image/avif' if self.app._avif_supported() else 'image/webp'
+        self.assertEqual(r.headers['content-type'], expected)
+        self.assertIn('Accept', r.headers.get('vary', ''))
+
+    def test_webp_accept_gets_webp_and_vary(self):
+        with self._fetch(PNG_SRC):
+            r = self._get('image/webp,image/*')
+        self.assertEqual(r.headers['content-type'], 'image/webp')
+        self.assertIn('Accept', r.headers.get('vary', ''))
+
+    def test_jpeg_only_accept_gets_jpeg_and_vary(self):
+        with self._fetch(PNG_SRC):
+            r = self._get('image/jpeg,image/*')
+        self.assertEqual(r.headers['content-type'], 'image/jpeg')
+        self.assertIn('Accept', r.headers.get('vary', ''))
+
+    def test_vary_present_on_cache_hit(self):
+        with self._fetch(PNG_SRC):
+            r1 = self._get('image/webp,image/*')
+            r2 = self._get('image/webp,image/*')
+        self.assertEqual(r1.headers['x-image-cache'], 'MISS')
+        self.assertEqual(r2.headers['x-image-cache'], 'HIT')
+        self.assertIn('Accept', r2.headers.get('vary', ''))
+        self.assertIn('immutable', r2.headers['cache-control'])
+
+    def test_vary_present_on_processing_fallback(self):
+        with patch.object(self.app, '_process_image', side_effect=ValueError('boom')):
+            with self._fetch(PNG_SRC):
+                r = self._get('image/webp,image/*')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.content, PNG_SRC)
+        self.assertIn('Accept', r.headers.get('vary', ''))
+
+    def test_explicit_format_has_no_vary_accept(self):
+        with self._fetch(PNG_SRC):
+            r = self.client.get('/api/img',
+                                params={'url': 'https://img.komiku.org/cover/x.png',
+                                        'w': 400, 'format': 'webp', 'q': 78})
+        self.assertEqual(r.headers['content-type'], 'image/webp')
+        self.assertNotIn('Accept', r.headers.get('vary', ''))
+
+    def test_legacy_passthrough_has_no_vary_accept(self):
+        with self._fetch(WEBP_SRC):
+            r = self.client.get('/api/img',
+                                params={'url': 'https://img.komiku.org/cover/x.webp'})
+        self.assertNotIn('Accept', r.headers.get('vary', ''))
+
+
 class HealthTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -148,6 +232,24 @@ class HealthTest(unittest.TestCase):
         r = self.client.get('/health')
         self.assertEqual(r.status_code, 200)
         self.assertIn('status', r.json())
+
+    def test_health_default_does_not_scrape_upstream(self):
+        with patch.object(self.app, 'api') as api_mock, \
+             patch.object(self.app, 'web') as web_mock:
+            r = self.client.get('/health')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'ok')
+        api_mock.latest.assert_not_called()
+        web_mock.catalog.assert_not_called()
+
+    def test_health_deep_mode_still_diagnoses_upstream(self):
+        with patch.object(self.app.api, 'latest', return_value=[{'slug': 'a'}]), \
+             patch.object(self.app.web, 'catalog', return_value={'total': 7615}):
+            r = self.client.get('/health?deep=1')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['comics_found'], 1)
+        self.assertEqual(body['catalog_total'], 7615)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,12 @@ def get_stale_cache(key, max_age=21600):
 def set_cache(key, data, ttl=3600):
     cache[key] = {'data': data, 'exp': datetime.now() + timedelta(seconds=ttl)}
 
+# Batas jumlah fetch halaman detail per panggilan resolver portrait, supaya
+# satu cold start listing tidak memicu puluhan request ke komiku.org.
+PORTRAIT_RESOLVE_MAX = int(os.environ.get('PORTRAIT_RESOLVE_MAX', '8'))
+PORTRAIT_POS_TTL = 604800   # 7 hari: cover portrait resmi jarang berubah
+PORTRAIT_NEG_TTL = 86400    # 1 hari: keputusan "portrait tidak ditemukan"
+
 # ==================== KOMIKU REST API CLIENT ====================
 class KomikuAPI:
     BASE = "https://api-komiku.vercel.app"
@@ -176,15 +182,37 @@ class KomikuAPI:
         items = [self._card(i) for i in results] if isinstance(results, list) else []
         return self._resolve_portrait(items)
 
+    # Marker cover landscape/banner dari data upstream yang terbukti perlu
+    # di-resolve ke portrait. Cover tanpa marker ini (dan bukan manga_thumbnail)
+    # dibiarkan apa adanya — frontend menahan crop lewat fitCover()/contain.
+    _LANDSCAPE_MARKERS = (
+        'manga_img_horizontal',
+        'resize=240,150',
+        'resize=450,235',
+    )
+
+    @classmethod
+    def _needs_portrait_resolution(cls, card):
+        """True hanya untuk cover yang jelas landscape/banner."""
+        cover = card.get('cover') or ''
+        if not cover or not card.get('slug'):
+            return False
+        if 'manga_thumbnail' in cover:
+            return False  # sudah portrait resmi
+        return any(m in cover for m in cls._LANDSCAPE_MARKERS)
+
     def _resolve_portrait(self, items):
-        """Ganti cover non-portrait (banner manga_img_horizontal, img_upload dll)
+        """Ganti cover landscape (banner manga_img_horizontal, resize=240,150 dll)
         dengan cover portrait manga_thumbnail dari halaman detail komiku.org,
-        supaya pas di kotak 2:3. Hasil di-cache 7 hari (cover jarang berubah);
-        kalau fetch gagal, cover lama dipertahankan dan dicoba lagi nanti.
+        supaya pas di kotak 2:3. Hanya cover yang jelas landscape yang di-resolve;
+        cover yang sudah portrait atau tidak dikenali dibiarkan apa adanya.
+        Hasil (termasuk keputusan "tidak ditemukan") di-cache; kalau fetch gagal,
+        cover lama dipertahankan dan dicoba lagi nanti.
         """
+        budget = [PORTRAIT_RESOLVE_MAX]
+
         def one(card):
-            cover = card.get('cover') or ''
-            if 'manga_thumbnail' in cover or not card.get('slug'):
+            if not self._needs_portrait_resolution(card):
                 return card
             key = f"portrait_{card['slug']}"
             hit = get_cache(key)
@@ -192,11 +220,14 @@ class KomikuAPI:
                 if hit:
                     card['cover'] = hit
                 return card
+            if budget[0] <= 0:
+                return card
+            budget[0] -= 1
             try:
                 hit = web.portrait_cover(card['slug']) or ''
             except requests.RequestException:
                 return card
-            set_cache(key, hit, ttl=604800)
+            set_cache(key, hit, ttl=PORTRAIT_POS_TTL if hit else PORTRAIT_NEG_TTL)
             if hit:
                 card['cover'] = hit
             return card
@@ -642,13 +673,18 @@ def proxy_image(
     if eff is None:
         eff = _sniff_format(_img_fetch(url)[0])  # format=original
 
+    # format=auto memilih output dari header Accept → response bervariasi per
+    # browser. Vary: Accept wajib agar CDN tidak melayani AVIF ke browser yang
+    # hanya mendukung JPEG/WebP. Format eksplisit tidak perlu Vary.
+    vary = {'Vary': 'Accept'} if format == 'auto' else {}
+
     key = hashlib.sha256(f"{url}|{w or 0}|{q}|{eff}".encode('utf-8')).hexdigest()
     hit = _img_cache_get(key, IMAGE_CACHE_TTL)
     if hit is not None:
         return Response(content=hit, media_type=_MIME[eff],
                         headers={"Cache-Control": f"public, max-age={IMAGE_CACHE_TTL}, immutable, s-maxage={IMAGE_CACHE_TTL}",
                                  "CDN-Cache-Control": f"public, s-maxage={IMAGE_CACHE_TTL}, immutable",
-                                 "X-Image-Cache": "HIT"})
+                                 "X-Image-Cache": "HIT", **vary})
 
     src, ctype = _img_fetch(url)
     try:
@@ -660,12 +696,12 @@ def proxy_image(
         return Response(content=src, media_type=ctype,
                         headers={"Cache-Control": "public, max-age=86400, s-maxage=86400",
                                  "CDN-Cache-Control": "public, s-maxage=86400",
-                                 "X-Image-Cache": "MISS"})
+                                 "X-Image-Cache": "MISS", **vary})
     _img_cache_put(key, out)
     return Response(content=out, media_type=_MIME[eff],
                     headers={"Cache-Control": f"public, max-age={IMAGE_CACHE_TTL}, immutable, s-maxage={IMAGE_CACHE_TTL}",
                              "CDN-Cache-Control": f"public, s-maxage={IMAGE_CACHE_TTL}, immutable",
-                             "X-Image-Cache": "MISS"})
+                             "X-Image-Cache": "MISS", **vary})
 
 # ==================== FRONTEND ====================
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -673,9 +709,16 @@ INDEX_PATH = os.path.join(WEB_DIR, "index.html")
 
 
 @app.get("/health")
-def health():
-    """Health check: cek REST API dan scraper katalog sekaligus."""
-    out = {"status": "ok"}
+def health(deep: int = Query(0, ge=0, le=1)):
+    """Health check ringan untuk deployment: tanpa scraping upstream.
+
+    Default hanya mengembalikan status aplikasi + versi. Diagnostic upstream
+    (REST API + scraper katalog) tersedia via /health?deep=1 dan TIDAK boleh
+    dipakai sebagai health check deployment karena bergantung pada upstream.
+    """
+    out = {"status": "ok", "version": app.version}
+    if not deep:
+        return out
     try:
         out["comics_found"] = len(api.latest(1))
     except Exception as e:
