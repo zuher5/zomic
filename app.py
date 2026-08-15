@@ -104,6 +104,10 @@ class KomikuAPI:
                 'type': s.get('type', ''),
                 'genre': s.get('genres', ''),
             })
+        # Cover similar dari upstream sering banner/landscape (img/upload,
+        # manga_img_horizontal) — resolve ke portrait kanonik seperti endpoint lain.
+        if similar:
+            similar = self._resolve_portrait(similar)
 
         return {
             'title': d.get('title', slug),
