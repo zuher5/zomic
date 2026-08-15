@@ -37,11 +37,10 @@ def get_stale_cache(key, max_age=21600):
 def set_cache(key, data, ttl=3600):
     cache[key] = {'data': data, 'exp': datetime.now() + timedelta(seconds=ttl)}
 
-# Batas jumlah fetch halaman detail per panggilan resolver portrait, supaya
-# satu cold start listing tidak memicu puluhan request ke komiku.org.
-PORTRAIT_RESOLVE_MAX = int(os.environ.get('PORTRAIT_RESOLVE_MAX', '8'))
-PORTRAIT_POS_TTL = 604800   # 7 hari: cover portrait resmi jarang berubah
-PORTRAIT_NEG_TTL = 86400    # 1 hari: keputusan "portrait tidak ditemukan"
+# Cache hasil resolver portrait: positif 7 hari (cover jarang berubah),
+# negatif 1 hari (keputusan "portrait tidak ditemukan" tidak disimpan lama).
+PORTRAIT_POS_TTL = 604800
+PORTRAIT_NEG_TTL = 86400
 
 # ==================== KOMIKU REST API CLIENT ====================
 class KomikuAPI:
@@ -182,35 +181,25 @@ class KomikuAPI:
         items = [self._card(i) for i in results] if isinstance(results, list) else []
         return self._resolve_portrait(items)
 
-    # Marker cover landscape/banner dari data upstream yang terbukti perlu
-    # di-resolve ke portrait. Cover tanpa marker ini (dan bukan manga_thumbnail)
-    # dibiarkan apa adanya — frontend menahan crop lewat fitCover()/contain.
-    _LANDSCAPE_MARKERS = (
-        'manga_img_horizontal',
-        'resize=240,150',
-        'resize=450,235',
-    )
+    @staticmethod
+    def _needs_portrait_resolution(card):
+        """True untuk semua cover yang belum pasti portrait.
 
-    @classmethod
-    def _needs_portrait_resolution(cls, card):
-        """True hanya untuk cover yang jelas landscape/banner."""
+        Data upstream terbukti memakai banyak pola non-portrait (manga_img_horizontal,
+        img/upload, new/img, berbagai varian resize) yang tidak bisa didaftar lewat
+        marker saja — gate berbasis marker membuat cover kembali landscape.
+        Satu-satunya penanda portrait resmi yang andal adalah 'manga_thumbnail'.
+        """
         cover = card.get('cover') or ''
-        if not cover or not card.get('slug'):
-            return False
-        if 'manga_thumbnail' in cover:
-            return False  # sudah portrait resmi
-        return any(m in cover for m in cls._LANDSCAPE_MARKERS)
+        return bool(cover) and bool(card.get('slug')) and 'manga_thumbnail' not in cover
 
     def _resolve_portrait(self, items):
-        """Ganti cover landscape (banner manga_img_horizontal, resize=240,150 dll)
+        """Ganti cover non-portrait (banner manga_img_horizontal, img/upload dll)
         dengan cover portrait manga_thumbnail dari halaman detail komiku.org,
-        supaya pas di kotak 2:3. Hanya cover yang jelas landscape yang di-resolve;
-        cover yang sudah portrait atau tidak dikenali dibiarkan apa adanya.
-        Hasil (termasuk keputusan "tidak ditemukan") di-cache; kalau fetch gagal,
-        cover lama dipertahankan dan dicoba lagi nanti.
+        supaya pas di kotak 2:3. Hasil (termasuk keputusan "tidak ditemukan")
+        di-cache sehingga fetch detail hanya terjadi saat cache dingin; kalau
+        fetch gagal, cover lama dipertahankan dan dicoba lagi nanti.
         """
-        budget = [PORTRAIT_RESOLVE_MAX]
-
         def one(card):
             if not self._needs_portrait_resolution(card):
                 return card
@@ -220,9 +209,6 @@ class KomikuAPI:
                 if hit:
                     card['cover'] = hit
                 return card
-            if budget[0] <= 0:
-                return card
-            budget[0] -= 1
             try:
                 hit = web.portrait_cover(card['slug']) or ''
             except requests.RequestException:

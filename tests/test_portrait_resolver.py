@@ -30,9 +30,16 @@ class NeedsPortraitResolutionTest(unittest.TestCase):
         self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', 'https://x.komiku.org/img?resize=450,235')))
 
-    def test_unknown_cover_is_not_resolved(self):
-        self.assertFalse(app_module.KomikuAPI._needs_portrait_resolution(
+    def test_unknown_cover_is_also_resolved(self):
+        # Pola non-portrait upstream tidak bisa didaftar lewat marker saja
+        # (img/upload, new/img, varian resize lain) — semua yang bukan
+        # manga_thumbnail harus dicoba resolve.
+        self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', PLAIN)))
+        self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
+            card('a', 'https://thumbnail.komiku.to/img/upload/x/img_1.png?resize=240,280')))
+
+    def test_empty_cover_or_slug_is_not_resolved(self):
         self.assertFalse(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', '')))
         self.assertFalse(app_module.KomikuAPI._needs_portrait_resolution(
@@ -77,11 +84,11 @@ class ResolvePortraitTest(unittest.TestCase):
         self.assertEqual(m.call_count, 1)
         self.assertEqual(out[0]['cover'], PORTRAIT)
 
-    def test_resolver_budget_bounds_detail_requests(self):
+    def test_all_listing_items_are_resolved_not_capped(self):
         items = [card(f'slug-{i}', BANNER) for i in range(30)]
         with patch.object(app_module.web, 'portrait_cover', return_value='') as m:
             app_module.api._resolve_portrait(items)
-        self.assertLessEqual(m.call_count, app_module.PORTRAIT_RESOLVE_MAX)
+        self.assertEqual(m.call_count, 30)
 
     def test_resolver_does_not_upscale_or_rewrite_url(self):
         """Hasil resolver dipakai apa adanya — tanpa param resize/upscale."""
