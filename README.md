@@ -8,7 +8,7 @@ gambar ter-proxy (lolos hotlink protection).
 
 - Katalog lengkap semua komik (`/api/catalog`, 50/halaman → 153 halaman)
 - Pencarian ke seluruh katalog (`/api/search`), bukan hanya komik terbaru
-- 109 genre (`/api/genres` + `/api/genre/{slug}`)
+- 97 genre (`/api/genres` + `/api/genre/{slug}`)
 - Populer per tipe, rekomendasi, dan komik berwarna
 - Detail komik lengkap: sinopsis, status, author, rating, tanggal chapter, komik serupa
 - Reader vertikal dengan navigasi prev/next chapter & shortcut keyboard (←/→/Esc)
@@ -106,7 +106,7 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/latest` | Komik terbaru (20 item) |
 | `/api/catalog?page=&type=&letter=` | Katalog lengkap (manga/manhwa/manhua, A–Z) |
 | `/api/search?q=&page=` | Pencarian seluruh katalog |
-| `/api/genres` | Daftar 109 genre |
+| `/api/genres` | Daftar 97 genre |
 | `/api/genre/{slug}?page=` | Komik per genre |
 | `/api/popular` | Populer per tipe |
 | `/api/recommended` | Rekomendasi (40 item) |

@@ -100,10 +100,17 @@ def _is_placeholder(url):
 
 # Snapshot daftar genre (slug, nama) dari komiku.org — dipakai sebagai cadangan
 # bila situs menolak akses scraper (DDoS-Guard 403).
+#
+# Daftar ini diverifikasi per-2026-08 terhadap komiku.org: hanya genre yang
+# benar-benar punya komik di API search komiku.org yang dipertahankan.
+# Genre yang dihapus karena tidak ada hasil sama sekali (0 komik, termasuk
+# variasi slug alternatif): adaptation, businessman, hentai, kids,
+# magical-girls, modern, office-workers, sexual-violence, shotacon,
+# web-comic, xianxia, xuanhuan.
 _GENRE_LINKS = (
-    ('academy','Academy'),('action','Action'),('adaptation','Adaptation'),
+    ('academy','Academy'),('action','Action'),
     ('adult','Adult'),('adventure','Adventure'),('apocalypse','apocalypse'),
-    ('beasts','Beasts'),('blacksmith','Blacksmith'),('businessman','Businessman'),
+    ('beasts','Beasts'),('blacksmith','Blacksmith'),
     ('comedy','Comedy'),('comic','Comic'),('cooking','Cooking'),('crime','Crime'),
     ('crossdressing','Crossdressing'),('dark-fantasy','Dark Fantasy'),
     ('demon','Demon'),('demons','Demons'),('doujinshi','Doujinshi'),
@@ -111,21 +118,21 @@ _GENRE_LINKS = (
     ('fantasy','Fantasy'),('fight','Fight'),('furry','Furry'),('game','Game'),
     ('gender-bender','Gender Bender'),('genderswap','Genderswap'),('genius','Genius'),
     ('ghosts','Ghosts'),("girls-love","Girls' Love"),('gore','Gore'),('gyaru','Gyaru'),
-    ('harem','Harem'),('hentai','Hentai'),('historical','Historical'),
-    ('horror','Horror'),('isekai','Isekai'),('josei','Josei'),('kids','Kids'),
+    ('harem','Harem'),('historical','Historical'),
+    ('horror','Horror'),('isekai','Isekai'),('josei','Josei'),
     ('knight','Knight'),('long-strip','Long Strip'),('magic','Magic'),
-    ('magical-girls','Magical Girls'),('manga','Manga'),('mangatoon','Mangatoon'),
+    ('manga','Manga'),('mangatoon','Mangatoon'),
     ('manhwa','Manhwa'),('martial-art','Martial Art'),('martial-arts','Martial Arts'),
     ('mature','Mature'),('mc-rebirth','MC Rebirth'),('mecha','Mecha'),
-    ('medical','Medical'),('military','Military'),('modern','Modern'),
+    ('medical','Medical'),('military','Military'),
     ('monster','Monster'),('monster-girls','Monster girls'),('monsters','Monsters'),
     ('murim','Murim'),('music','Music'),('mystery','Mystery'),('mythology','Mythology'),
-    ('office-workers','Office Workers'),('one-shot','One Shot'),('oneshot','Oneshot'),
+    ('one-shot','One Shot'),('oneshot','Oneshot'),
     ('police','Police'),('psychological','Psychological'),('regression','Regression'),
     ('reincarnation','Reincarnation'),('revenge','Revenge'),('reverse-harem','Reverse Harem'),
     ('romance','Romance'),('school','School'),('school-life','School life'),
-    ('sci-fi','Sci-fi'),('seinen','Seinen'),('sexual-violence','Sexual Violence'),
-    ('shotacon','Shotacon'),('shoujo','Shoujo'),('shoujo-ai','Shoujo Ai'),
+    ('sci-fi','Sci-fi'),('seinen','Seinen'),
+    ('shoujo','Shoujo'),('shoujo-ai','Shoujo Ai'),
     ('shoujog','Shoujo(G)'),('shounen','Shounen'),('shounen-ai','Shounen Ai'),
     ('slice-of-life','Slice of Life'),('slow-life','Slow Life'),('smut','Smut'),
     ('sport','Sport'),('sports','Sports'),('strategy','Strategy'),
@@ -134,8 +141,8 @@ _GENRE_LINKS = (
     ('system','System'),('thriller','Thriller'),('time-travel','Time Travel'),
     ('tragedy','Tragedy'),('trauma','Trauma'),('vampire','Vampire'),
     ('video-games','Video Games'),('villainess','Villainess'),('violence','Violence'),
-    ('web-comic','Web Comic'),('webtoon','Webtoon'),('webtoons','Webtoons'),
-    ('xianxia','Xianxia'),('xuanhuan','Xuanhuan'),('yuri','Yuri'),
+    ('webtoon','Webtoon'),('webtoons','Webtoons'),
+    ('yuri','Yuri'),
 )
 
 
@@ -328,7 +335,7 @@ class KomikuWeb:
         }
 
     def genres(self):
-        """Daftar semua genre yang tersedia (~109 genre).
+        """Daftar semua genre yang tersedia (~97 genre).
 
         komiku.org sekarang dilindungi DDoS-Guard dan sering menolak request
         scraper (403). Karena daftar genre praktis statis, kita pakai snapshot
