@@ -634,7 +634,9 @@ function fitCover(img) {
 }
 document.addEventListener('load', e => {
   const t = e.target;
-  if (t instanceof HTMLImageElement && t.dataset.cover) fitCover(t);
+  // 'cover' in t.dataset (bukan truthiness): data-cover dipasang tanpa nilai,
+  // jadi dataset.cover === '' yang falsy — cek keberadaan atribut, bukan nilainya.
+  if (t instanceof HTMLImageElement && 'cover' in t.dataset) fitCover(t);
 }, true);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const DOT = '<span class="dot" aria-hidden="true">·</span>';
