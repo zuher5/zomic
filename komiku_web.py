@@ -98,15 +98,20 @@ def _is_placeholder(url):
     return 'asset/img/lazy' in url
 
 
+# Genre yang diverifikasi TIDAK ADA di komiku.org per-2026-08: tidak punya
+# komik sama sekali (0 hasil di API search, termasuk variasi slug alternatif,
+# dan tidak muncul sebagai tag di halaman detail komik mana pun).
+# Halaman genre komiku.org masih menampilkan link genre ini di sidebar,
+# jadi hasil parse situs wajib difilter lewat set ini.
+_GENRE_INVALID = frozenset((
+    'adaptation', 'businessman', 'hentai', 'kids', 'magical-girls',
+    'modern', 'office-workers', 'sexual-violence', 'shotacon',
+    'web-comic', 'xianxia', 'xuanhuan',
+))
+
 # Snapshot daftar genre (slug, nama) dari komiku.org — dipakai sebagai cadangan
-# bila situs menolak akses scraper (DDoS-Guard 403).
-#
-# Daftar ini diverifikasi per-2026-08 terhadap komiku.org: hanya genre yang
-# benar-benar punya komik di API search komiku.org yang dipertahankan.
-# Genre yang dihapus karena tidak ada hasil sama sekali (0 komik, termasuk
-# variasi slug alternatif): adaptation, businessman, hentai, kids,
-# magical-girls, modern, office-workers, sexual-violence, shotacon,
-# web-comic, xianxia, xuanhuan.
+# bila situs menolak akses scraper (DDoS-Guard 403). Hanya genre yang benar-
+# benar punya komik di API search komiku.org yang dipertahankan (97 genre).
 _GENRE_LINKS = (
     ('academy','Academy'),('action','Action'),
     ('adult','Adult'),('adventure','Adventure'),('apocalypse','apocalypse'),
@@ -348,6 +353,8 @@ class KomikuWeb:
         out, seen = [], set()
         pairs = _GENRE_LINK.findall(raw) if raw else _GENRE_LINKS
         for slug, name in pairs:
+            if slug in _GENRE_INVALID:
+                continue
             if slug in seen:
                 continue
             seen.add(slug)
