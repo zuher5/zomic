@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 from PIL import Image, features
 
-from komiku_web import KomikuWeb, retry_get, _strip_thumb_query
+from komiku_web import KomikuWeb, retry_get
 
 # ==================== CACHE ====================
 cache = {}
@@ -166,7 +166,6 @@ class KomikuAPI:
         cover = item.get('thumbnail') or ''
         if cover.startswith('//'):
             cover = 'https:' + cover
-        cover = _strip_thumb_query(cover)  # buang query crop → source asli (portrait)
         slug = (
             item.get('mangaSlug')
             or item.get('slug')
@@ -212,24 +211,24 @@ class KomikuAPI:
 
     @staticmethod
     def _needs_portrait_resolution(card):
-        """True hanya untuk cover yang benar-benar perlu diganti ke portrait.
+        """True hanya untuk cover yang perlu diganti ke portrait.
 
-        Source asli thumbnail.komiku.* (manga_thumbnail, new/img, img/upload)
-        selalu portrait; query crop resize sudah di-strip di _card/parser, jadi
-        yang tersisa landscape hanyalah banner manga_img_horizontal. Host lain
-        (img.komiku.org dll) tidak terverifikasi → di-resolve untuk aman.
+        Aturan:
+        - Banner horizontal (manga_img_horizontal) → selalu landscape → resolve.
+        - Query resize=W,H → W>H landscape crop → resolve; W<H portrait crop → aman.
+        - Tanpa resize: manga_thumbnail di path → portrait resmi → aman; pola lain
+          (new/img, img/upload, host lain) tidak dijamin portrait → resolve.
         """
         cover = card.get('cover') or ''
         if not cover or not card.get('slug'):
             return False
-        cover = _strip_thumb_query(cover)  # defensif: query crop dibuang di hulu (_card/parser)
-        if 'manga_thumbnail' in cover:
-            return False
-        if 'manga_img_horizontal' in cover:
+        path = cover.split('?')[0]
+        if 'manga_img_horizontal' in path:
             return True
-        if 'thumbnail.komiku.' in cover:
-            return False
-        return True
+        m = re.search(r'resize=(\d+),(\d+)', cover)
+        if m:
+            return int(m.group(1)) > int(m.group(2))
+        return 'manga_thumbnail' not in path
 
     def _resolve_portrait(self, items):
         """Ganti cover non-portrait (banner manga_img_horizontal, img/upload dll)
