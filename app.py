@@ -595,7 +595,8 @@ def proxy_image(
         hit = 'HIT' if _img_source_hit(url) else 'MISS'
         data, ctype = _img_fetch(url)
         return Response(content=data, media_type=ctype,
-                        headers={"Cache-Control": "public, max-age=86400",
+                        headers={"Cache-Control": "public, max-age=86400, s-maxage=86400",
+                                 "CDN-Cache-Control": "public, s-maxage=86400",
                                  "X-Image-Cache": hit})
 
     accept = (request.headers.get('Accept') or '')
@@ -607,7 +608,8 @@ def proxy_image(
     hit = _img_cache_get(key, IMAGE_CACHE_TTL)
     if hit is not None:
         return Response(content=hit, media_type=_MIME[eff],
-                        headers={"Cache-Control": f"public, max-age={IMAGE_CACHE_TTL}, immutable",
+                        headers={"Cache-Control": f"public, max-age={IMAGE_CACHE_TTL}, immutable, s-maxage={IMAGE_CACHE_TTL}",
+                                 "CDN-Cache-Control": f"public, s-maxage={IMAGE_CACHE_TTL}, immutable",
                                  "X-Image-Cache": "HIT"})
 
     src, ctype = _img_fetch(url)
@@ -618,11 +620,13 @@ def proxy_image(
     except Exception:
         # Fallback aman: kirim source asli bila processing gagal.
         return Response(content=src, media_type=ctype,
-                        headers={"Cache-Control": "public, max-age=86400",
+                        headers={"Cache-Control": "public, max-age=86400, s-maxage=86400",
+                                 "CDN-Cache-Control": "public, s-maxage=86400",
                                  "X-Image-Cache": "MISS"})
     _img_cache_put(key, out)
     return Response(content=out, media_type=_MIME[eff],
-                    headers={"Cache-Control": f"public, max-age={IMAGE_CACHE_TTL}, immutable",
+                    headers={"Cache-Control": f"public, max-age={IMAGE_CACHE_TTL}, immutable, s-maxage={IMAGE_CACHE_TTL}",
+                             "CDN-Cache-Control": f"public, s-maxage={IMAGE_CACHE_TTL}, immutable",
                              "X-Image-Cache": "MISS"})
 
 # ==================== FRONTEND ====================
