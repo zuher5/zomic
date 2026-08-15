@@ -25,18 +25,21 @@ class NeedsPortraitResolutionTest(unittest.TestCase):
     def test_landscape_markers_trigger_resolution(self):
         self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', BANNER)))
-        self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
+        # Query crop landscape dibuang oleh _card/parser → source asli portrait,
+        # jadi URL thumbnail yang tinggal query resize TIDAK perlu di-resolve.
+        self.assertFalse(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', BANNER_RESIZE)))
         self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', 'https://x.komiku.org/img?resize=450,235')))
 
     def test_unknown_cover_is_also_resolved(self):
-        # Pola non-portrait upstream tidak bisa didaftar lewat marker saja
-        # (img/upload, new/img, varian resize lain) — semua yang bukan
-        # manga_thumbnail harus dicoba resolve.
+        # Host di luar thumbnail.komiku.* (img.komiku.org dll) tidak terverifikasi
+        # portrait → dicoba resolve.
         self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', PLAIN)))
-        self.assertTrue(app_module.KomikuAPI._needs_portrait_resolution(
+        # Source asli thumbnail.komiku.* (img/upload, new/img) selalu portrait
+        # setelah query crop dibuang → tidak perlu fetch detail.
+        self.assertFalse(app_module.KomikuAPI._needs_portrait_resolution(
             card('a', 'https://thumbnail.komiku.to/img/upload/x/img_1.png?resize=240,280')))
 
     def test_empty_cover_or_slug_is_not_resolved(self):

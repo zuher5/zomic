@@ -11,7 +11,7 @@ BeautifulSoup, konsisten dengan modul scraper lain di proyek ini.
 import html
 import re
 import time
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import requests
 
@@ -96,6 +96,27 @@ def _abs_url(url):
 
 def _is_placeholder(url):
     return 'asset/img/lazy' in url
+
+
+# Host thumbnail komiku menyediakan thumbnail crop (resize=240,150 / 450,235
+# landscape, 160,220 portrait) yang kalau dipakai langsung jadi terpotong/buram
+# di kotak portrait 2:3. Query-nya dibuang supaya source asli (portrait) dipakai;
+# image proxy yang melakukan resize server-side dengan rasio dipertahankan.
+_THUMB_HOST = re.compile(r'(^|\.)thumbnail\.komiku\.(org|to|id)$', re.I)
+
+
+def _strip_thumb_query(url):
+    """Buang query (?resize=..&quality=..) dari URL thumbnail.komiku.*.
+
+    Source asli thumbnail.komiku.* selalu portrait; query crop landscape-lah
+    yang membuat cover tampak landscape. Host lain dibiarkan apa adanya.
+    """
+    if not url or '?' not in url:
+        return url
+    host = urlparse(url).hostname or ''
+    if _THUMB_HOST.search(host):
+        return url.split('?', 1)[0]
+    return url
 
 
 # Genre yang diverifikasi TIDAK ADA di komiku.org per-2026-08: tidak punya
@@ -187,7 +208,7 @@ class KomikuWeb:
             slug_m = _SLUG.search(block)
             if not slug_m:
                 continue
-            covers = [_abs_url(u) for u in _IMG.findall(block)]
+            covers = [_strip_thumb_query(_abs_url(u)) for u in _IMG.findall(block)]
             cover = next((c for c in covers if c and not _is_placeholder(c)), '')
             title_m = _H4.search(block)
             meta = _text(_META.search(block).group(1) if _META.search(block) else '')
@@ -220,7 +241,7 @@ class KomikuWeb:
             slug_m = _SLUG.search(block)
             if not slug_m:
                 continue
-            covers = [_abs_url(u) for u in _IMG.findall(left)]
+            covers = [_strip_thumb_query(_abs_url(u)) for u in _IMG.findall(left)]
             cover = next((c for c in covers if c and not _is_placeholder(c)), '')
             title_m = _H3.search(right)
             tinf = _TYPE_INF.search(left)

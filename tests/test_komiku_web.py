@@ -79,7 +79,10 @@ class CatalogParseTest(unittest.TestCase):
         with self.fetch(CARD_PAGE):
             items = self.web.catalog(1)["items"]
         self.assertNotIn("lazy.jpg", items[0]["cover"])
-        self.assertIn("&quality=60", items[0]["cover"])
+        # Query crop thumbnail (resize/quality) dibuang supaya source asli
+        # portrait dipakai — bukan crop landscape 450x235/240x150.
+        self.assertNotIn("?", items[0]["cover"])
+        self.assertNotIn("quality=", items[0]["cover"])
         self.assertTrue(items[1]["cover"].startswith("https://"), "// harus jadi https://")
 
     def test_catalog_last_page_has_no_next(self):
@@ -109,6 +112,7 @@ class CatalogParseTest(unittest.TestCase):
         self.assertEqual(item["title"], "Gamma Comic")
         self.assertEqual(item["type"], "Manhua")
         self.assertEqual(item["chapter"], "Chapter 42")
+        self.assertNotIn("?", item["cover"], "query crop landscape harus dibuang")
         self.assertFalse(d["has_next"], "kurang dari per_page berarti habis")
 
     def test_search_empty_query_short_circuits(self):

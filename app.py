@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 from PIL import Image, features
 
-from komiku_web import KomikuWeb, retry_get
+from komiku_web import KomikuWeb, retry_get, _strip_thumb_query
 
 # ==================== CACHE ====================
 cache = {}
@@ -166,6 +166,7 @@ class KomikuAPI:
         cover = item.get('thumbnail') or ''
         if cover.startswith('//'):
             cover = 'https:' + cover
+        cover = _strip_thumb_query(cover)  # buang query crop → source asli (portrait)
         slug = (
             item.get('mangaSlug')
             or item.get('slug')
@@ -211,15 +212,24 @@ class KomikuAPI:
 
     @staticmethod
     def _needs_portrait_resolution(card):
-        """True untuk semua cover yang belum pasti portrait.
+        """True hanya untuk cover yang benar-benar perlu diganti ke portrait.
 
-        Data upstream terbukti memakai banyak pola non-portrait (manga_img_horizontal,
-        img/upload, new/img, berbagai varian resize) yang tidak bisa didaftar lewat
-        marker saja — gate berbasis marker membuat cover kembali landscape.
-        Satu-satunya penanda portrait resmi yang andal adalah 'manga_thumbnail'.
+        Source asli thumbnail.komiku.* (manga_thumbnail, new/img, img/upload)
+        selalu portrait; query crop resize sudah di-strip di _card/parser, jadi
+        yang tersisa landscape hanyalah banner manga_img_horizontal. Host lain
+        (img.komiku.org dll) tidak terverifikasi → di-resolve untuk aman.
         """
         cover = card.get('cover') or ''
-        return bool(cover) and bool(card.get('slug')) and 'manga_thumbnail' not in cover
+        if not cover or not card.get('slug'):
+            return False
+        cover = _strip_thumb_query(cover)  # defensif: query crop dibuang di hulu (_card/parser)
+        if 'manga_thumbnail' in cover:
+            return False
+        if 'manga_img_horizontal' in cover:
+            return True
+        if 'thumbnail.komiku.' in cover:
+            return False
+        return True
 
     def _resolve_portrait(self, items):
         """Ganti cover non-portrait (banner manga_img_horizontal, img/upload dll)
@@ -384,7 +394,13 @@ def catalog(
 ):
     """Katalog LENGKAP komiku.org (7.6rb+ komik), 50 per halaman."""
     key = f"catalog_{page}_{type}_{letter}"
-    data = cached(key, lambda: web.catalog(page, ctype=type or None, letter=letter or None), ttl=1800)
+
+    def _catalog():
+        data = web.catalog(page, ctype=type or None, letter=letter or None)
+        data['items'] = api._resolve_portrait(data['items'])
+        return data
+
+    data = cached(key, _catalog, ttl=1800)
     _edge_cache(response, s_maxage=900, swr=3600)
     return data
 
@@ -392,7 +408,12 @@ def catalog(
 def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(1, ge=1, le=100),
            response: Response = None):
     """Pencarian di seluruh katalog, bukan hanya 20 komik terbaru."""
-    data = cached(f"search_{q.lower()}_{page}", lambda: web.search(q, page), ttl=900)
+    def _search():
+        data = web.search(q, page)
+        data['items'] = api._resolve_portrait(data['items'])
+        return data
+
+    data = cached(f"search_{q.lower()}_{page}", _search, ttl=900)
     _edge_cache(response, s_maxage=300, swr=900)
     return data
 
@@ -404,7 +425,12 @@ def genres(response: Response = None):
 
 @app.get("/api/genre/{slug}")
 def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Response = None):
-    data = cached(f"genre_{slug}_{page}", lambda: web.by_genre(slug, page), ttl=1800)
+    def _genre():
+        data = web.by_genre(slug, page)
+        data['items'] = api._resolve_portrait(data['items'])
+        return data
+
+    data = cached(f"genre_{slug}_{page}", _genre, ttl=1800)
     if not data['items'] and page == 1:
         raise HTTPException(status_code=404, detail="genre tidak ditemukan")
     _edge_cache(response, s_maxage=600, swr=1800)
