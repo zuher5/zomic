@@ -10,6 +10,7 @@ BeautifulSoup, konsisten dengan modul scraper lain di proyek ini.
 
 import html
 import re
+import threading
 import time
 from urllib.parse import quote_plus
 
@@ -156,12 +157,23 @@ class KomikuWeb:
 
     def __init__(self, timeout=25):
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update(HEADERS)
+        self._local = threading.local()
+
+    def _session(self):
+        """Session per-thread: KomikuWeb dipakai dari ThreadPoolExecutor
+        resolver portrait (app.py) yang berbagi instance ini antar thread,
+        sedangkan requests.Session tidak thread-safe."""
+        try:
+            return self._local.session
+        except AttributeError:
+            s = requests.Session()
+            s.headers.update(HEADERS)
+            self._local.session = s
+            return s
 
     def _fetch(self, url, timeout=None, attempts=None):
         resp = retry_get(
-            self.session,
+            self._session(),
             url,
             timeout=timeout or self.timeout,
             attempts=attempts or RETRY_ATTEMPTS,
@@ -268,11 +280,12 @@ class KomikuWeb:
         if not m:
             return ''
         url = _abs_url(m.group(1) or m.group(2) or '')
-        if not url or 'thumbnail' not in url:
+        low = url.lower()
+        if not url or 'thumbnail' not in low:
             return ''
         # Status 200 bukan jaminan isinya portrait: og:image bisa saja banner
         # landscape. Tolak marker landscape yang terbukti dari data upstream.
-        if any(marker in url for marker in
+        if any(marker in low for marker in
                ('manga_img_horizontal', 'resize=240,150', 'resize=450,235')):
             return ''
         return url

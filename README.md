@@ -146,7 +146,7 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 | `IMAGE_MAX_BYTES` | `12582912` | Batas ukuran download (12 MB) |
 | `IMAGE_MAX_PIXELS` | `25000000` | Batas dimensi/decompression bomb (25 MP) |
 | `IMAGE_CACHE_TTL` | `2592000` | TTL variant cache (30 hari) |
-| `IMAGE_SOURCE_CACHE_TTL` | `86400` | TTL cache source asli (1 hari) |
+| `IMAGE_SOURCE_CACHE_TTL` | `604800` | TTL cache source asli (7 hari) |
 | `IMAGE_CACHE_MAX_BYTES` | `268435456` | Batas total cache disk (256 MB) |
 
 Cache pada Render Free bersifat **ephemeral** (filesystem tidak persisten):

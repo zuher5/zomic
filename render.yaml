@@ -19,6 +19,6 @@ services:
       - key: IMAGE_CACHE_TTL
         value: "2592000"
       - key: IMAGE_SOURCE_CACHE_TTL
-        value: "86400"
+        value: "604800"
       - key: IMAGE_CACHE_MAX_BYTES
         value: "268435456"

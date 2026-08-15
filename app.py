@@ -41,6 +41,10 @@ def set_cache(key, data, ttl=3600):
 # negatif 1 hari (keputusan "portrait tidak ditemukan" tidak disimpan lama).
 PORTRAIT_POS_TTL = 604800
 PORTRAIT_NEG_TTL = 86400
+# Paralelisme resolver portrait. Cukup kecil untuk tidak membebani upstream,
+# cukup besar supaya listing besar (/rekomendasi ~40 item) selesai jauh di
+# bawah batas 60s function Vercel saat cache dingin.
+PORTRAIT_WORKERS = 8
 
 # ==================== KOMIKU REST API CLIENT ====================
 class KomikuAPI:
@@ -50,11 +54,23 @@ class KomikuAPI:
     }
 
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update(self.HEADERS)
+        self._local = threading.local()
+
+    def _session(self):
+        """Session per-thread: requests.Session tidak thread-safe, sedangkan
+        resolver portrait berjalan di ThreadPoolExecutor yang berbagi instance
+        ini antar thread. Session dibuat sekali per thread (pooling tetap ada).
+        """
+        try:
+            return self._local.session
+        except AttributeError:
+            s = requests.Session()
+            s.headers.update(self.HEADERS)
+            self._local.session = s
+            return s
 
     def _get(self, path, timeout=20):
-        resp = retry_get(self.session, f"{self.BASE}{path}", timeout=timeout)
+        resp = retry_get(self._session(), f"{self.BASE}{path}", timeout=timeout)
         resp.raise_for_status()
         return resp.json()
 
@@ -81,8 +97,8 @@ class KomikuAPI:
         cover portrait; error jaringan dilempar sebagai RequestException agar
         caller bisa membedakan "tidak ditemukan" vs "gagal sementara".
         """
-        resp = retry_get(self.session, f"{self.BASE}/detail-komik/{slug}",
-                         attempts=1, timeout=8)
+        resp = retry_get(self._session(), f"{self.BASE}/detail-komik/{slug}",
+                         attempts=1, timeout=5)
         if resp.status_code == 404:
             return ''
         resp.raise_for_status()
@@ -95,10 +111,14 @@ class KomikuAPI:
             cover = 'https:' + cover
         if not cover.startswith(('http://', 'https://')):
             return ''
-        cover = cover.split('?')[0]  # buang param resize (?w=500) → source asli
-        if any(m in cover for m in
+        # Tolak banner SEBELUM query string dibuang: marker resize
+        # (resize=240,150 / resize=450,235) hidup di query string — mengecek
+        # setelah split('?') membuatnya dead code dan banner landscape lolos
+        # sebagai "portrait" (black bar). Periksa case-insensitive.
+        if any(m in cover.lower() for m in
                ('manga_img_horizontal', 'resize=240,150', 'resize=450,235')):
             return ''
+        cover = cover.split('?')[0]  # buang param resize (?w=500) → source asli
         return cover
 
     def detail(self, slug):
@@ -237,6 +257,9 @@ class KomikuAPI:
         di-cache sehingga fetch detail hanya terjadi saat cache dingin; kalau
         fetch gagal, cover lama dipertahankan dan dicoba lagi nanti.
         """
+        if not items:
+            return items
+
         def one(card):
             if not self._needs_portrait_resolution(card):
                 return card
@@ -261,14 +284,27 @@ class KomikuAPI:
                 card['cover'] = hit
             return card
 
-        if not items:
+        # Resolve tiap slug UNIK sekali saja: slug duplikat dalam satu listing
+        # (umum di /rekomendasi & /populer) tidak boleh memicu panggilan ganda
+        # saat cache dingin — hasilnya disalin ke semua duplikat sesudahnya.
+        todo, first = [], set()
+        for card in items:
+            if self._needs_portrait_resolution(card) and card['slug'] not in first:
+                first.add(card['slug'])
+                todo.append(card)
+        if not todo:
             return items
         try:
-            with ThreadPoolExecutor(max_workers=5) as ex:
-                return list(ex.map(one, items))
+            with ThreadPoolExecutor(max_workers=PORTRAIT_WORKERS) as ex:
+                list(ex.map(one, todo))
         except Exception:
             # Jangan sampai kegagalan resolve merusak listing: kembalikan apa adanya.
             return items
+        resolved = {card['slug']: card['cover'] for card in todo}
+        for card in items:
+            if self._needs_portrait_resolution(card) and card['slug'] in resolved:
+                card['cover'] = resolved[card['slug']]
+        return items
 
 
     @staticmethod
@@ -495,7 +531,7 @@ IMAGE_CACHE_DIR = os.environ.get('IMAGE_CACHE_DIR', os.path.join(tempfile.gettem
 IMAGE_MAX_BYTES = int(os.environ.get('IMAGE_MAX_BYTES', '12582912'))          # 12 MB
 IMAGE_MAX_PIXELS = int(os.environ.get('IMAGE_MAX_PIXELS', '25000000'))        # 25 MP
 IMAGE_CACHE_TTL = int(os.environ.get('IMAGE_CACHE_TTL', '2592000'))            # 30 hari
-IMAGE_SOURCE_CACHE_TTL = int(os.environ.get('IMAGE_SOURCE_CACHE_TTL', '86400'))  # 1 hari
+IMAGE_SOURCE_CACHE_TTL = int(os.environ.get('IMAGE_SOURCE_CACHE_TTL', '604800'))  # 7 hari
 IMAGE_CACHE_MAX_BYTES = int(os.environ.get('IMAGE_CACHE_MAX_BYTES', '268435456'))  # 256 MB
 
 _IMG_LOCK = threading.Lock()
