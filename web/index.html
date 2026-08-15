@@ -550,6 +550,10 @@ body:not(.chrome) .rbar.bottom{transform:translateY(100%);opacity:0}
   *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
   .rail{scroll-behavior:auto}
 }
+/* Cover dengan rasio menyimpang jauh dari 2:3 (banner horizontal / hampir kotak)
+   ditampilkan utuh (contain) supaya tidak terpotong oleh object-fit:cover.
+   Kelas .wide dipasang via JS setelah gambar selesai dimuat. */
+img[data-cover].wide{object-fit:contain}
 </style>
 </head>
 <body>
@@ -593,11 +597,12 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const view = $('#view');
 const IMG = u => u ? '/api/img?url=' + encodeURIComponent(u) : '';
-/* thumbnail.komiku.org menyediakan thumbnail crop landscape kecil (resize=240,150)
-   yang kalau dipaksa di kotak portrait 2/3 jadi terpotong & buram. Di sini kita
-   minta gambar asli (tanpa param resize) lalu biarkan image proxy resize
-   server-side dengan aspect ratio dipertahankan (tidak crop). */
-const THUMB_HOST = /(^|\.)thumbnail\.komiku\.org$/i;
+/* thumbnail.komiku.* menyediakan thumbnail crop kecil (resize=240,150 landscape di
+   /terbaru, resize=160,220 portrait di katalog) yang kalau dipaksa di kotak portrait
+   2/3 jadi terpotong & buram. Di sini kita minta gambar asli (tanpa param resize)
+   lalu biarkan image proxy resize server-side dengan aspect ratio dipertahankan
+   (tidak crop). Host thumbnail bisa .org / .to / .id. */
+const THUMB_HOST = /(^|\.)thumbnail\.komiku\.(org|to|id)$/i;
 const opt = (u, w, fmt = 'auto', q = 78) => {
   if (!u || !/^https?:\/\//i.test(u)) return '';
   let base = u;
@@ -609,7 +614,7 @@ const opt = (u, w, fmt = 'auto', q = 78) => {
 };
 const srcset = u => `${opt(u, 240)} 240w, ${opt(u, 400)} 400w, ${opt(u, 800)} 800w`;
 const coverImg = (u, w, sizes, eager = false) => u
-  ? `<img ${eager ? '' : 'loading="lazy"'} decoding="async" src="${opt(u, w)}" srcset="${srcset(u)}" sizes="${sizes}" alt="" onerror="this.remove()">`
+  ? `<img data-cover ${eager ? '' : 'loading="lazy"'} decoding="async" src="${opt(u, w)}" srcset="${srcset(u)}" sizes="${sizes}" alt="" onerror="this.remove()">`
   : '';
 /* sizes mengikuti layout aktual card cover 2/3 (bukan 1x/2x, tapi lebar kontainer). */
 const S_GRID = '(min-width:1280px) 174px, (min-width:1024px) 18vw, (min-width:768px) 22vw, (min-width:480px) 29vw, 45vw';
@@ -618,6 +623,19 @@ const S_DETAIL = '(min-width:768px) 220px, 34vw';
 const S_RESUME = '(max-width:479px) 64px, 86px';
 const S_R2 = '40px';
 const S_TH = '70px';
+/* Cover yang rasionya menyimpang >20% dari 2:3 (banner horizontal atau hampir
+   kotak) diberi class .wide → object-fit:contain, supaya tidak terpotong.
+   Load event tidak bubble, jadi dipasang di fase capture. */
+function fitCover(img) {
+  if (img.dataset.fitDone) return;
+  img.dataset.fitDone = '1';
+  const r = img.naturalWidth / img.naturalHeight;
+  if (r > 0 && Math.abs(r - 2 / 3) > (2 / 3) * 0.2) img.classList.add('wide');
+}
+document.addEventListener('load', e => {
+  const t = e.target;
+  if (t instanceof HTMLImageElement && t.dataset.cover) fitCover(t);
+}, true);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const DOT = '<span class="dot" aria-hidden="true">·</span>';
 const joinDot = parts => parts.filter(Boolean).map(esc).join(DOT);
