@@ -1239,7 +1239,7 @@ const NAV = [
   { href: '#/favorit', key: 'favorit', label: 'Favorit', icon: 'star' },
   { href: '#/riwayat', key: 'riwayat', label: 'Riwayat', icon: 'clock' },
 ];
-const DESKNAV = [...NAV, { href: '#/berwarna', key: 'berwarna', label: 'Berwarna' }];
+const DESKNAV = [...NAV];
 
 function renderNav(active) {
   $('#botnav').innerHTML = NAV.map(n =>

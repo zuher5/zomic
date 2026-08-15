@@ -301,57 +301,94 @@ def cached(key, producer, ttl=3600, stale_ttl=21600):
     return data
 
 
+def _edge_cache(response: Response, s_maxage: int, browser: int = 60, swr: int | None = None):
+    """Edge-cache respons di Vercel CDN untuk endpoint listing.
+
+    s-maxage mengontrol umur di shared cache (CDN/edge); CDN-Cache-Control
+    dipakai Vercel sebagai sumber kebenaran edge. stale-while-revalidate
+    membuat CDN tetap melayani data lama sementara origin di-refresh.
+    Browser memakai max-age kecil agar SPA tidak menahan data basi lama.
+    """
+    cc = f"public, max-age={browser}, s-maxage={s_maxage}"
+    cdn = f"public, s-maxage={s_maxage}"
+    if swr:
+        cc += f", stale-while-revalidate={swr}"
+        cdn += f", stale-while-revalidate={swr}"
+    response.headers['Cache-Control'] = cc
+    response.headers['CDN-Cache-Control'] = cdn
+
+
 @app.get("/api/latest")
-def latest(page: int = Query(1, ge=1)):
-    return cached(f"latest_{page}", lambda: api.latest(page), ttl=600)
+def latest(page: int = Query(1, ge=1), response: Response = None):
+    data = cached(f"latest_{page}", lambda: api.latest(page), ttl=600)
+    _edge_cache(response, s_maxage=300, swr=900)
+    return data
 
 @app.get("/api/catalog")
 def catalog(
     page: int = Query(1, ge=1, le=200),
     type: str = Query("", pattern=r'^(manga|manhwa|manhua)?$'),
     letter: str = Query("", max_length=1),
+    response: Response = None,
 ):
     """Katalog LENGKAP komiku.org (7.6rb+ komik), 50 per halaman."""
     key = f"catalog_{page}_{type}_{letter}"
-    return cached(key, lambda: web.catalog(page, ctype=type or None, letter=letter or None), ttl=1800)
+    data = cached(key, lambda: web.catalog(page, ctype=type or None, letter=letter or None), ttl=1800)
+    _edge_cache(response, s_maxage=900, swr=3600)
+    return data
 
 @app.get("/api/search")
-def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(1, ge=1, le=100)):
+def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(1, ge=1, le=100),
+           response: Response = None):
     """Pencarian di seluruh katalog, bukan hanya 20 komik terbaru."""
-    return cached(f"search_{q.lower()}_{page}", lambda: web.search(q, page), ttl=900)
+    data = cached(f"search_{q.lower()}_{page}", lambda: web.search(q, page), ttl=900)
+    _edge_cache(response, s_maxage=300, swr=900)
+    return data
 
 @app.get("/api/genres")
-def genres():
-    return cached("genres", web.genres, ttl=86400)
+def genres(response: Response = None):
+    data = cached("genres", web.genres, ttl=86400)
+    _edge_cache(response, s_maxage=86400, swr=86400, browser=900)
+    return data
 
 @app.get("/api/genre/{slug}")
-def genre_detail(slug: str, page: int = Query(1, ge=1, le=100)):
+def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Response = None):
     data = cached(f"genre_{slug}_{page}", lambda: web.by_genre(slug, page), ttl=1800)
     if not data['items'] and page == 1:
         raise HTTPException(status_code=404, detail="genre tidak ditemukan")
+    _edge_cache(response, s_maxage=600, swr=1800)
     return data
 
 @app.get("/api/popular")
-def popular():
-    return cached("popular", api.popular, ttl=3600)
+def popular(response: Response = None):
+    data = cached("popular", api.popular, ttl=3600)
+    _edge_cache(response, s_maxage=600, swr=3600)
+    return data
 
 @app.get("/api/recommended")
-def recommended():
-    return cached("recommended", api.recommended, ttl=3600)
+def recommended(response: Response = None):
+    data = cached("recommended", api.recommended, ttl=3600)
+    _edge_cache(response, s_maxage=600, swr=3600)
+    return data
 
 @app.get("/api/colored")
-def colored():
-    return cached("colored", api.colored, ttl=1800)
+def colored(response: Response = None):
+    data = cached("colored", api.colored, ttl=1800)
+    _edge_cache(response, s_maxage=600, swr=1800)
+    return data
 
 @app.get("/api/detail/{slug}")
-def detail(slug: str):
-    return cached(f"detail_{slug}", lambda: api.detail(slug), ttl=1800)
+def detail(slug: str, response: Response = None):
+    data = cached(f"detail_{slug}", lambda: api.detail(slug), ttl=1800)
+    _edge_cache(response, s_maxage=600, swr=1800)
+    return data
 
 @app.get("/api/chapter/{slug}/{chapter}", response_model=List[str])
-def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+(-\d+)?$')):
+def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+(-\d+)?$'), response: Response = None):
     key = f"chap_{slug}_{chapter}"
     hit = get_cache(key)
     if hit is not None:
+        _edge_cache(response, s_maxage=900, swr=3600, browser=300)
         return hit
     try:
         images = api.chapter(slug, chapter)
@@ -365,6 +402,7 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+(-\d+)?$')):
     if not images:
         raise HTTPException(status_code=404, detail="tidak ada gambar untuk chapter ini")
     set_cache(key, images)
+    _edge_cache(response, s_maxage=900, swr=3600, browser=300)
     return images
 
 # ==================== IMAGE PROXY (cover, optimized) ====================
