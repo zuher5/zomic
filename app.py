@@ -6,6 +6,7 @@ import threading
 import time
 from typing import List
 from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from fastapi import FastAPI, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, Response
@@ -65,7 +66,7 @@ class KomikuAPI:
             card['update'] = item.get('updateTime', '')
             card['colored'] = bool(item.get('isColored'))
             result.append(card)
-        return result
+        return self._resolve_portrait(result)
 
     def detail(self, slug):
         d = self._get(f"/detail-komik/{slug}")
@@ -156,19 +157,54 @@ class KomikuAPI:
                     continue
                 items = [self._card(i) for i in (group.get('items') or [])]
                 if items:
-                    groups.append({'key': key, 'title': group.get('title', key.title()), 'items': items})
+                    groups.append({'key': key, 'title': group.get('title', key.title()), 'items': self._resolve_portrait(items)})
         return groups
 
     def recommended(self):
         data = self._get("/rekomendasi")
-        return [self._card(i) for i in data] if isinstance(data, list) else []
+        return self._resolve_portrait([self._card(i) for i in data]) if isinstance(data, list) else []
 
     def colored(self, page=1):
         """Komik berwarna. Upstream mengabaikan page, jadi selalu halaman 1."""
         data = self._get(f"/berwarna?page={page}")
         payload = data.get('data') if isinstance(data, dict) else None
         results = (payload or {}).get('results') if isinstance(payload, dict) else None
-        return [self._card(i) for i in results] if isinstance(results, list) else []
+        items = [self._card(i) for i in results] if isinstance(results, list) else []
+        return self._resolve_portrait(items)
+
+    def _resolve_portrait(self, items):
+        """Ganti cover non-portrait (banner manga_img_horizontal, img_upload dll)
+        dengan cover portrait manga_thumbnail dari halaman detail komiku.org,
+        supaya pas di kotak 2:3. Hasil di-cache 7 hari (cover jarang berubah);
+        kalau fetch gagal, cover lama dipertahankan dan dicoba lagi nanti.
+        """
+        def one(card):
+            cover = card.get('cover') or ''
+            if 'manga_thumbnail' in cover or not card.get('slug'):
+                return card
+            key = f"portrait_{card['slug']}"
+            hit = get_cache(key)
+            if hit is not None:
+                if hit:
+                    card['cover'] = hit
+                return card
+            try:
+                hit = web.portrait_cover(card['slug']) or ''
+            except requests.RequestException:
+                return card
+            set_cache(key, hit, ttl=604800)
+            if hit:
+                card['cover'] = hit
+            return card
+
+        if not items:
+            return items
+        try:
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                return list(ex.map(one, items))
+        except Exception:
+            # Jangan sampai kegagalan resolve merusak listing: kembalikan apa adanya.
+            return items
 
 
     @staticmethod

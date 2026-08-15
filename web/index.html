@@ -623,14 +623,15 @@ const S_DETAIL = '(min-width:768px) 220px, 34vw';
 const S_RESUME = '(max-width:479px) 64px, 86px';
 const S_R2 = '40px';
 const S_TH = '70px';
-/* Cover yang rasionya menyimpang >20% dari 2:3 (banner horizontal atau hampir
-   kotak) diberi class .wide → object-fit:contain, supaya tidak terpotong.
-   Load event tidak bubble, jadi dipasang di fase capture. */
+/* Cover rasio ekstrem (banner landscape r>1, atau super tinggi r<0.5) diberi
+   class .wide → object-fit:contain supaya tidak terpotong. Cover portrait biasa
+   (~0.7, sudah di-resolve ke manga_thumbnail oleh backend) tetap object-fit:cover
+   agar tidak letterbox. Load event tidak bubble, jadi dipasang di fase capture. */
 function fitCover(img) {
   if (img.dataset.fitDone) return;
   img.dataset.fitDone = '1';
   const r = img.naturalWidth / img.naturalHeight;
-  if (r > 0 && Math.abs(r - 2 / 3) > (2 / 3) * 0.2) img.classList.add('wide');
+  if (r > 0 && (r > 1.0 || r < 0.5)) img.classList.add('wide');
 }
 document.addEventListener('load', e => {
   const t = e.target;

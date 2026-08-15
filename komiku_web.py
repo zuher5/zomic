@@ -71,6 +71,11 @@ _TYPE_INF = re.compile(r'<div class="tpe1_inf">\s*<b>([^<]*)</b>([^<]*)</div>', 
 _CHAP = re.compile(r'<span>(Awal|Terbaru):\s*</span>\s*<span>([^<]*)</span>', re.S)
 _GENRE_LINK = re.compile(r'href="[^"]*?/genre/([a-z0-9\-]+)/?"[^>]*>([^<]{1,60})<')
 _TAG = re.compile(r'<[^>]+>')
+# Cover portrait di halaman detail: img utama ber-itemprop image, fallback og:image.
+_PORTRAIT = re.compile(
+    r'<img[^>]*itemprop="image"[^>]*src="([^"]+)"|<meta property="og:image" content="([^"]+)"',
+    re.I,
+)
 
 
 def _text(raw):
@@ -142,8 +147,13 @@ class KomikuWeb:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
 
-    def _fetch(self, url):
-        resp = retry_get(self.session, url, timeout=self.timeout)
+    def _fetch(self, url, timeout=None, attempts=None):
+        resp = retry_get(
+            self.session,
+            url,
+            timeout=timeout or self.timeout,
+            attempts=attempts or RETRY_ATTEMPTS,
+        )
         resp.raise_for_status()
         return resp.text
 
@@ -224,6 +234,29 @@ class KomikuWeb:
         return out
 
     # ---------- endpoint ----------
+
+    def portrait_cover(self, slug):
+        """Cover portrait (manga_thumbnail) dari halaman detail komiku.org.
+
+        Endpoint /terbaru dan /berwarna dari REST API pihak ketiga mengembalikan
+        gambar banner horizontal (manga_img_horizontal-*) yang tidak pas di kotak
+        portrait 2:3. Halaman detail memuat cover portrait resmi seri tersebut.
+        Mengembalikan URL asli (tanpa param resize) atau '' bila tidak ditemukan.
+        """
+        slug = re.sub(r'[^a-z0-9\-]', '', (slug or '').lower())
+        if not slug:
+            return ''
+        try:
+            # Tanpa retry (attempts=1): kalau gagal, cover banner lama tetap dipakai
+            # dan dicoba lagi di refresh berikutnya — jangan boros waktu di sini.
+            raw = self._fetch(f"{SITE}/manga/{slug}/", timeout=6, attempts=1)
+        except requests.RequestException:
+            raise
+        m = _PORTRAIT.search(raw)
+        if not m:
+            return ''
+        url = _abs_url(m.group(1) or m.group(2) or '')
+        return url if url and 'thumbnail' in url else ''
 
     def catalog(self, page=1, ctype=None, letter=None):
         """Katalog lengkap komiku.org (7.6rb+ komik), 50 per halaman."""
