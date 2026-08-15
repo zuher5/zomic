@@ -73,6 +73,34 @@ class KomikuAPI:
             result.append(card)
         return self._resolve_portrait(result)
 
+    def portrait_cover_api(self, slug):
+        """Cover portrait via REST API upstream (/detail-komik).
+
+        Jauh lebih andal daripada scraping halaman detail komiku.org yang
+        dilindungi DDoS-Guard. Mengembalikan '' bila slug memang tidak punya
+        cover portrait; error jaringan dilempar sebagai RequestException agar
+        caller bisa membedakan "tidak ditemukan" vs "gagal sementara".
+        """
+        resp = retry_get(self.session, f"{self.BASE}/detail-komik/{slug}",
+                         attempts=1, timeout=8)
+        if resp.status_code == 404:
+            return ''
+        resp.raise_for_status()
+        try:
+            d = resp.json()
+        except ValueError:
+            return ''
+        cover = d.get('thumbnail') or ''
+        if cover.startswith('//'):
+            cover = 'https:' + cover
+        if not cover.startswith(('http://', 'https://')):
+            return ''
+        cover = cover.split('?')[0]  # buang param resize (?w=500) → source asli
+        if any(m in cover for m in
+               ('manga_img_horizontal', 'resize=240,150', 'resize=450,235')):
+            return ''
+        return cover
+
     def detail(self, slug):
         d = self._get(f"/detail-komik/{slug}")
         cover = d.get('thumbnail') or ''
@@ -209,10 +237,16 @@ class KomikuAPI:
                 if hit:
                     card['cover'] = hit
                 return card
+            hit = ''
             try:
-                hit = web.portrait_cover(card['slug']) or ''
+                # Sumber utama: REST API upstream (andal, tidak diblokir).
+                hit = self.portrait_cover_api(card['slug']) or ''
             except requests.RequestException:
-                return card
+                # Fallback: scraping halaman detail komiku.org.
+                try:
+                    hit = web.portrait_cover(card['slug']) or ''
+                except requests.RequestException:
+                    return card
             set_cache(key, hit, ttl=PORTRAIT_POS_TTL if hit else PORTRAIT_NEG_TTL)
             if hit:
                 card['cover'] = hit

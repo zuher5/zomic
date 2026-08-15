@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests
 
@@ -51,19 +51,31 @@ class ResolvePortraitTest(unittest.TestCase):
         app_module.cache.clear()
 
     def test_manga_thumbnail_does_not_call_portrait_cover(self):
-        with patch.object(app_module.web, 'portrait_cover') as m:
+        with patch.object(app_module.api, 'portrait_cover_api') as m1, \
+             patch.object(app_module.web, 'portrait_cover') as m2:
             out = app_module.api._resolve_portrait([card('a', PORTRAIT)])
-        m.assert_not_called()
+        m1.assert_not_called()
+        m2.assert_not_called()
         self.assertEqual(out[0]['cover'], PORTRAIT)
 
     def test_landscape_cover_calls_resolver(self):
-        with patch.object(app_module.web, 'portrait_cover', return_value=PORTRAIT) as m:
+        with patch.object(app_module.api, 'portrait_cover_api', return_value=PORTRAIT) as m:
+            out = app_module.api._resolve_portrait([card('a', BANNER)])
+        m.assert_called_once_with('a')
+        self.assertEqual(out[0]['cover'], PORTRAIT)
+
+    def test_api_failure_falls_back_to_scraper(self):
+        with patch.object(app_module.api, 'portrait_cover_api',
+                          side_effect=requests.ConnectionError('boom')), \
+             patch.object(app_module.web, 'portrait_cover', return_value=PORTRAIT) as m:
             out = app_module.api._resolve_portrait([card('a', BANNER)])
         m.assert_called_once_with('a')
         self.assertEqual(out[0]['cover'], PORTRAIT)
 
     def test_resolver_failure_keeps_upstream_cover(self):
-        with patch.object(app_module.web, 'portrait_cover',
+        with patch.object(app_module.api, 'portrait_cover_api',
+                          side_effect=requests.ConnectionError('boom')), \
+             patch.object(app_module.web, 'portrait_cover',
                           side_effect=requests.ConnectionError('boom')):
             out = app_module.api._resolve_portrait([card('a', BANNER)])
         self.assertEqual(out[0]['cover'], BANNER)
@@ -71,14 +83,14 @@ class ResolvePortraitTest(unittest.TestCase):
         self.assertNotIn("portrait_a", app_module.cache)
 
     def test_negative_result_is_cached(self):
-        with patch.object(app_module.web, 'portrait_cover', return_value='') as m:
+        with patch.object(app_module.api, 'portrait_cover_api', return_value='') as m:
             app_module.api._resolve_portrait([card('a', BANNER)])
             app_module.api._resolve_portrait([card('a', BANNER)])
         self.assertEqual(m.call_count, 1)
         self.assertIn("portrait_a", app_module.cache)
 
     def test_positive_result_is_cached(self):
-        with patch.object(app_module.web, 'portrait_cover', return_value=PORTRAIT) as m:
+        with patch.object(app_module.api, 'portrait_cover_api', return_value=PORTRAIT) as m:
             app_module.api._resolve_portrait([card('a', BANNER)])
             out = app_module.api._resolve_portrait([card('a', BANNER)])
         self.assertEqual(m.call_count, 1)
@@ -86,16 +98,49 @@ class ResolvePortraitTest(unittest.TestCase):
 
     def test_all_listing_items_are_resolved_not_capped(self):
         items = [card(f'slug-{i}', BANNER) for i in range(30)]
-        with patch.object(app_module.web, 'portrait_cover', return_value='') as m:
+        with patch.object(app_module.api, 'portrait_cover_api', return_value='') as m:
             app_module.api._resolve_portrait(items)
         self.assertEqual(m.call_count, 30)
 
     def test_resolver_does_not_upscale_or_rewrite_url(self):
         """Hasil resolver dipakai apa adanya — tanpa param resize/upscale."""
-        with patch.object(app_module.web, 'portrait_cover', return_value=PORTRAIT):
+        with patch.object(app_module.api, 'portrait_cover_api', return_value=PORTRAIT):
             out = app_module.api._resolve_portrait([card('a', BANNER)])
         self.assertEqual(out[0]['cover'], PORTRAIT)
         self.assertNotIn('resize=', out[0]['cover'])
+
+
+class PortraitCoverApiTest(unittest.TestCase):
+    def _resp(self, status=200, payload=None):
+        r = MagicMock()
+        r.status_code = status
+        r.json.return_value = payload or {}
+        r.raise_for_status.return_value = None
+        return r
+
+    def test_resize_param_is_stripped(self):
+        resp = self._resp(payload={'thumbnail': PORTRAIT + '?w=500'})
+        with patch.object(app_module.api, 'session') as s:
+            s.get.return_value = resp
+            self.assertEqual(app_module.api.portrait_cover_api('a'), PORTRAIT)
+
+    def test_banner_thumbnail_is_rejected(self):
+        resp = self._resp(payload={'thumbnail': BANNER})
+        with patch.object(app_module.api, 'session') as s:
+            s.get.return_value = resp
+            self.assertEqual(app_module.api.portrait_cover_api('a'), '')
+
+    def test_404_returns_empty(self):
+        with patch.object(app_module.api, 'session') as s:
+            s.get.return_value = self._resp(status=404)
+            self.assertEqual(app_module.api.portrait_cover_api('a'), '')
+
+    def test_protocol_relative_url_is_normalized(self):
+        resp = self._resp(payload={'thumbnail': '//thumbnail.komiku.to/manga_thumbnail-x/c.jpg'})
+        with patch.object(app_module.api, 'session') as s:
+            s.get.return_value = resp
+            self.assertEqual(app_module.api.portrait_cover_api('a'),
+                             'https://thumbnail.komiku.to/manga_thumbnail-x/c.jpg')
 
 
 class PortraitCoverValidationTest(unittest.TestCase):
