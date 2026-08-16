@@ -526,7 +526,7 @@ def _img_host_allowed(host):
     host = (host or '').lower().split(':')[0]
     return any(host == s or host.endswith('.' + s) for s in IMG_HOST_SUFFIXES)
 
-# --- env config (lihat render.yaml) ---
+# --- env config (lihat README: Image Proxy → Environment Variables) ---
 IMAGE_CACHE_DIR = os.environ.get('IMAGE_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'zomic-imgcache'))
 IMAGE_MAX_BYTES = int(os.environ.get('IMAGE_MAX_BYTES', '12582912'))          # 12 MB
 IMAGE_MAX_PIXELS = int(os.environ.get('IMAGE_MAX_PIXELS', '25000000'))        # 25 MP

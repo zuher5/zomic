@@ -141,7 +141,7 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 
 | Variable | Default | Fungsi |
 | --- | --- | --- |
-| `PORT` | `8000` | Port listen (dipakai production, mis. Render) |
+| `PORT` | `8000` | Port listen saat `python app.py` langsung (FastAPI Cloud tidak butuh ini) |
 | `IMAGE_CACHE_DIR` | `/tmp/zomic-image-cache` | Direktori cache gambar |
 | `IMAGE_MAX_BYTES` | `12582912` | Batas ukuran download (12 MB) |
 | `IMAGE_MAX_PIXELS` | `25000000` | Batas dimensi/decompression bomb (25 MP) |
@@ -149,57 +149,15 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 | `IMAGE_SOURCE_CACHE_TTL` | `604800` | TTL cache source asli (7 hari) |
 | `IMAGE_CACHE_MAX_BYTES` | `268435456` | Batas total cache disk (256 MB) |
 
-Cache pada Render Free bersifat **ephemeral** (filesystem tidak persisten):
-service akan tidur setelah idle dan cache hilang saat restart — itu normal.
+Cache disk (`/tmp`) bersifat **ephemeral**: hilang saat instance di-restart.
+Di FastAPI Cloud service tidur setelah idle — cache yang hilang itu normal;
+`cached()` akan mengisi ulang dari upstream.
 
 ## Menjalankan Tes
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -q
 ```
-
-## Deploy ke Render (Web Service Free)
-
-Deploy sebagai **Web Service** (bukan Static Site) dengan native Python runtime:
-
-```text
-Build Command:  pip install -r requirements.txt
-Start Command:  python app.py
-Health Check:   /health
-Region:         singapore
-Plan:           free
-```
-
-- `render.yaml` di repo sudah berisi konfigurasi tersebut beserta environment
-  variables image cache. Render otomatis menyuntikkan `PORT` — jangan hardcode
-  port 8000 untuk production; `app.py` membaca `PORT`.
-- Import repository ke Render → *New + → Blueprint* memakai `render.yaml`.
-- Catatan Render Free: service tidur setelah ~15 menit idle dan akan "cold start"
-  saat ada request berikutnya. Filesystem cache (`/tmp`) tidak persisten.
-- Reader image tidak dioptimalkan (legacy `/api/img?url=`) supaya halaman komik
-  tetap resolusi tinggi; hanya cover yang di-resize/compress.
-
-## Deploy ke Vercel (Serverless Function)
-
-Vercel menjalankan app sebagai **serverless function** Python (bukan server
-persisten). Konfigurasi sudah disiapkan:
-
-- `api/index.py` — entrypoint ASGI (`from app import app`), auto-deteksi Vercel.
-- `vercel.json` — route semua request ke `api/index.py`, `maxDuration: 60s`.
-
-Cara deploy: import repo `zuher5/zomic` di Vercel → *Import* → Vercel otomatis
-mendeteksi `vercel.json` → *Deploy*. URL: `https://zomic.vercel.app`.
-
-Batasan Vercel yang perlu diketahui:
-
-- **Response body limit ~4.5 MB** (hobby): halaman reader dengan gambar besar
-  bisa gagal dimuat — reader image tidak dioptimalkan demi kualitas.
-- **Timeout function**: default 10s, maksimal 60s (hobby). Upstream komiku.org
-  yang lambat/diblokir DDoS-Guard bisa terkena timeout (tetap retry terbatas).
-- **Filesystem ephemeral**: cache disk (`IMAGE_CACHE_DIR`) hanya bertahan selama
-  instance function hidup; tidak persisten antar-cold-start.
-- Untuk hasil terbaik (tidak ada limit ukuran/timeout), gunakan **Render Web
-  Service** di atas; Vercel cocok untuk uji coba cepat.
 
 ## Deploy ke FastAPI Cloud (server persisten)
 
@@ -247,7 +205,20 @@ Catatan:
 - Request scraper ke komiku.org bisa lambat (DDoS-Guard); `cached()` punya
   fallback cache stale, dan `/health` default tidak menyentuh upstream.
 - Cache disk pada FastAPI Cloud bersifat ephemeral (hilang saat instance
-  restart) — normal, sama seperti Render Free.
+  restart) — normal.
+
+## Vercel (cadangan — sedang di-pause)
+
+Project Vercel `zomic` saat ini **di-pause di dashboard** (bukan dihapus)
+sebagai cadangan bila FastAPI Cloud bermasalah. Konfigurasi `vercel.json`
+dan `api/index.py` tetap dipertahankan di repo; `api/` tidak ikut ter-upload
+ke FastAPI Cloud (`.fastapicloudignore`).
+
+Untuk mengaktifkan kembali: buka dashboard Vercel → project `zomic` →
+**Unpause** → push ulang ke `main` (auto-deploy via integrasi GitHub).
+
+Render.com tidak dipakai lagi (login butuh kartu kredit) dan `render.yaml`
+sudah dihapus — konfigurasinya masih tersedia di riwayat git bila diperlukan.
 
 ## Keterbatasan (upstream komiku.org)
 
