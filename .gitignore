@@ -26,3 +26,6 @@ frontend/.next/
 # Image cache lokal
 .imgcache/
 zomic-imgcache/
+
+# FastAPI Cloud local config (link project ke cloud app)
+.fastapicloud/

@@ -201,6 +201,54 @@ Batasan Vercel yang perlu diketahui:
 - Untuk hasil terbaik (tidak ada limit ukuran/timeout), gunakan **Render Web
   Service** di atas; Vercel cocok untuk uji coba cepat.
 
+## Deploy ke FastAPI Cloud (server persisten)
+
+FastAPI Cloud menjalankan app sebagai **server persisten** (bukan function
+serverless), jadi cache in-memory & disk (`IMAGE_CACHE_DIR`, default `/tmp`)
+bertahan selama instance hidup. Ada free Hobby plan tanpa kartu kredit.
+
+Repo ini sudah disiapkan untuk FastAPI Cloud:
+
+- `pyproject.toml` — dependencies + `[tool.fastapi] entrypoint = "app:app"`
+  (entrypoint eksplisit supaya `fastapi deploy` selalu menemukan app, bukan
+  hanya andalan auto-detect `app.py`).
+- `.fastapicloudignore` — hanya file runtime yang ter-upload (`tests/`,
+  `backend/`, `scraper/`, `frontend/`, `scripts/`, `api/` di-exclude).
+- `.gitignore` — `*.log`, `*.zip`, `.venv/` sudah di-exclude; `.fastapicloud/`
+  (config lokal hasil `fastapi deploy` pertama) tidak ikut ter-commit.
+
+Langkah deploy (bisa dari Termux / HP):
+
+```bash
+# 1. Ambil kode & install CLI
+pkg install python git -y
+pip install "fastapi[standard]"
+git clone https://github.com/zuher5/zomic && cd zomic
+
+# 2. Login (browser akan terbuka untuk autentikasi)
+fastapi login
+
+# 3. Deploy — pertama kali: pilih team & buat/link app
+fastapi deploy
+```
+
+Setelah sukses, app live di `https://<nama-app>.fastapicloud.dev`. Update
+berikutnya cukup `git pull && fastapi deploy` lagi dari folder yang sama
+(CLI memakai config `.fastapicloud/`).
+
+Catatan:
+
+- `PORT` tidak perlu di-set: FastAPI Cloud menjalankan app via `fastapi run`
+  (import `app:app`), bukan `python app.py` — blok `if __name__ == "__main__"`
+  tidak dieksekusi di cloud.
+- Env var image cache bisa di-set bila perlu, mis.
+  `fastapi cloud env set IMAGE_CACHE_TTL "2592000"` (nilai default di kode
+  sudah aman, jadi ini opsional).
+- Request scraper ke komiku.org bisa lambat (DDoS-Guard); `cached()` punya
+  fallback cache stale, dan `/health` default tidak menyentuh upstream.
+- Cache disk pada FastAPI Cloud bersifat ephemeral (hilang saat instance
+  restart) — normal, sama seperti Render Free.
+
 ## Keterbatasan (upstream komiku.org)
 
 - REST API pihak ketiga (`api-komiku.vercel.app`) mengabaikan parameter `page`

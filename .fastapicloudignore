@@ -1,0 +1,16 @@
+# FastAPI Cloud packaging: hanya file runtime yang dibutuhkan.
+# (app.py + komiku_web.py + web/ + pyproject.toml/requirements.txt di-upload)
+# .gitignore tetap berlaku; aturan di file ini mengambil alih (precedence).
+
+# Direktori tidak dipakai saat runtime (app.py hanya import requests/fastapi/uvicorn)
+tests/
+scripts/
+backend/
+scraper/
+frontend/
+api/
+
+# Artefak lokal
+*.log
+*.zip
+*Zone.Identifier

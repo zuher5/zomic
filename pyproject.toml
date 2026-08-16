@@ -1,0 +1,15 @@
+[project]
+name = "zomic"
+version = "2.0.0"
+description = "Web komik (manga reader) berbasis FastAPI — katalog lengkap komiku.org"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi[standard]>=0.110,<1.0",
+    "uvicorn>=0.29,<1.0",
+    "pydantic>=2.0,<3.0",
+    "requests>=2.31,<3.0",
+    "Pillow>=10.0,<13.0",
+]
+
+[tool.fastapi]
+entrypoint = "app:app"
