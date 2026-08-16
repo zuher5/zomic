@@ -2,15 +2,12 @@
 # (app.py + komiku_web.py + web/ + pyproject.toml/requirements.txt di-upload)
 # .gitignore tetap berlaku; aturan di file ini mengambil alih (precedence).
 
-# Direktori tidak dipakai saat runtime (app.py hanya import requests/fastapi/uvicorn)
-tests/
-scripts/
-backend/
-scraper/
-frontend/
-api/  # Vercel entrypoint — tidak dipakai FastAPI Cloud
+# api/ = Vercel entrypoint — tidak dipakai FastAPI Cloud
+api/
+scripts/  # dev tools lokal (smoke test / benchmark), tidak dibutuhkan runtime
 
 # Artefak lokal
+tests/__pycache__/
 *.log
 *.zip
 *Zone.Identifier

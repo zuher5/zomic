@@ -170,8 +170,8 @@ Repo ini sudah disiapkan untuk FastAPI Cloud:
 - `pyproject.toml` — dependencies + `[tool.fastapi] entrypoint = "app:app"`
   (entrypoint eksplisit supaya `fastapi deploy` selalu menemukan app, bukan
   hanya andalan auto-detect `app.py`).
-- `.fastapicloudignore` — hanya file runtime yang ter-upload (`tests/`,
-  `backend/`, `scraper/`, `frontend/`, `scripts/`, `api/` di-exclude).
+- `.fastapicloudignore` — hanya file runtime yang ter-upload
+  (`api/` entrypoint Vercel & `scripts/` dev tools di-exclude).
 - `.gitignore` — `*.log`, `*.zip`, `.venv/` sudah di-exclude; `.fastapicloud/`
   (config lokal hasil `fastapi deploy` pertama) tidak ikut ter-commit.
 
@@ -217,8 +217,7 @@ ke FastAPI Cloud (`.fastapicloudignore`).
 Untuk mengaktifkan kembali: buka dashboard Vercel → project `zomic` →
 **Unpause** → push ulang ke `main` (auto-deploy via integrasi GitHub).
 
-Render.com tidak dipakai lagi (login butuh kartu kredit) dan `render.yaml`
-sudah dihapus — konfigurasinya masih tersedia di riwayat git bila diperlukan.
+Render.com tidak dipakai dan konfigurasinya (`render.yaml`) telah dihapus.
 
 ## Keterbatasan (upstream komiku.org)
 

@@ -38,10 +38,10 @@ if ! "$PY" -m pip --version &> /dev/null; then
 fi
 echo -e "${PASS} Venv siap ($("$PY" --version))."
 
-# STEP 1: Dependencies (REST API hanya butuh requests + fastapi + uvicorn)
+# STEP 1: Dependencies (app butuh requests + fastapi + uvicorn + Pillow)
 echo -e "\n${YELLOW}[STEP 1] Verifikasi Dependencies...${NC}"
 MISSING=""
-for mod in fastapi uvicorn requests; do
+for mod in fastapi uvicorn requests PIL; do
     "$PY" -c "import $mod" 2>/dev/null || MISSING="$MISSING $mod"
 done
 if [ -z "$MISSING" ]; then
@@ -49,7 +49,7 @@ if [ -z "$MISSING" ]; then
 else
     echo -e "${WARN} Missing:$MISSING. ${FIX} Install...${NC}"
     "$PY" -m pip install --disable-pip-version-check --timeout 60 --retries 2 \
-        fastapi uvicorn requests 2>&1 | tail -3
+        fastapi uvicorn requests Pillow 2>&1 | tail -3
 fi
 
 # STEP 2: Syntax Check

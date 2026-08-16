@@ -78,7 +78,7 @@ Lakukan audit berikut:
 - Temukan entrypoint FastAPI utama dan pastikan objek ASGI bernama `app` tersedia.
 - Temukan semua endpoint `/api/*`, `/health`, `/api/img`, dan penggunaan `/api/img` pada frontend.
 - Temukan backend alternatif atau service lama yang mungkin tidak menyediakan endpoint Zomic seperti `/api/latest`, `/api/catalog`, `/api/genres`, `/api/popular`, dan `/api/recommended`.
-- Periksa `Dockerfile`, `docker-compose.yml`, `run.sh`, `README.md`, `requirements.txt`, dan seluruh konfigurasi deployment.
+- Periksa `Dockerfile`, `run.sh`, `README.md`, `requirements.txt`, dan seluruh konfigurasi deployment.
 - Cari semua penggunaan `<img>`, `srcset`, `loading`, dan pembentukan URL cover.
 - Audit keamanan image proxy: allowlist host, scheme, SSRF, private IP, ukuran download, dimensi gambar, decompression bomb, dan format yang tidak didukung.
 - Jalankan test yang sudah tersedia sebelum mengubah kode jika memungkinkan.
