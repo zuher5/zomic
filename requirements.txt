@@ -1,5 +1,12 @@
 fastapi>=0.110,<1.0
 uvicorn>=0.29,<1.0
-pydantic>=2.0,<3.0
+# Di Termux/Android aarch64 (cp314) tidak ada wheel pydantic-core di PyPI;
+# build dari source (Rust) crash di linker ("Pointer tag truncated", LLVM
+# abort). TUR hanya punya wheel pydantic-core==2.41.5 untuk
+# cp314-android_24_arm64_v8a, yang dipin persis oleh pydantic 2.12.5.
+# Marker sys_platform membatasi pin ini hanya di Android; Linux/cloud tetap
+# memakai rentang >=2.0,<3.0. Sumber wheel: https://termux-user-repository.github.io/pypi/
+pydantic==2.12.5; sys_platform == "android"
+pydantic>=2.0,<3.0; sys_platform != "android"
 requests>=2.31,<3.0
 Pillow>=10.0,<13.0
