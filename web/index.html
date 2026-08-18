@@ -469,20 +469,19 @@ body:not(.chrome) .rbar.bottom{transform:translateY(100%);opacity:0}
 .rbar.bottom .pos{font-size:var(--t-meta);color:var(--muted);white-space:nowrap}
 .progress{height:2px;background:var(--accent);width:0;transition:width .1s linear}
 
-/* floating autoscroll — tombol play melayang di tengah layar. Sembunyi otomatis
-   5 detik setelah muncul, tapi tetap berfungsi (autoscroll jalan terus).
-   Tap layar → tombol muncul lagi. Tap-to-scroll: tap bagian bawah → scroll down,
-   tap bagian atas → scroll up. */
+/* floating autoscroll — tombol play di tengah bawah, tepat di atas bar Prev/Next.
+   Sembunyi otomatis 5 detik, autoscroll tetap jalan. Tap-to-scroll: hanya
+   tap 30% bawah layar → scroll down tanpa buka UI. */
 .playfab{
   position:fixed;z-index:72;
-  left:50%;top:45%;transform:translate(-50%,-50%);
+  left:50%;bottom:calc(52px + env(safe-area-inset-bottom));transform:translateX(-50%);
   width:48px;height:48px;border-radius:50%;
   display:grid;place-items:center;
   background:var(--accent);color:var(--on-accent);
   box-shadow:0 4px 16px rgba(0,0,0,.55);
   transition:transform .15s var(--ease),opacity .22s var(--ease);
 }
-.playfab:active{transform:translate(-50%,-50%) scale(.92)}
+.playfab:active{transform:translateX(-50%) scale(.92)}
 .playfab svg{width:22px;height:22px;fill:currentColor;stroke:none}
 /* Default hidden — inline style mengontrol fade in/out via playfabFade()/playfabHide() */
 .playfab{opacity:0;pointer-events:none}
@@ -1222,23 +1221,24 @@ async function pageReader(slug, ch) {
     closeSheet = () => setSheet(false);
     $('#pages').addEventListener('click', e => {
       if (sheet.dataset.open === 'true') return setSheet(false);
+      if (e.target.closest('a, button, input')) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const relY = (e.clientY - rect.top) / rect.height;
-      if (relY > 0.65) {
+      if (relY > 0.70) {
+        tapScrollBlock = true;
+        setTimeout(() => { tapScrollBlock = false; }, 100);
         window.scrollBy({ top: window.innerHeight, behavior: 'smooth' });
-      } else if (relY < 0.35) {
-        window.scrollBy({ top: -window.innerHeight, behavior: 'smooth' });
-      } else {
-        clearTimeout(chromeTimer);
-        showChrome(!document.body.classList.contains('chrome'));
+        return;
       }
+      clearTimeout(chromeTimer);
+      showChrome(!document.body.classList.contains('chrome'));
     });
     $('#autoScroll').onclick = toggleAutoscroll;
     playfabFade();
   } catch (e) { document.body.dataset.view = ''; fail(e); }
 }
 
-let chromeTimer = null, lastY = 0, ticking = false, closeSheet = null;
+let chromeTimer = null, lastY = 0, ticking = false, closeSheet = null, tapScrollBlock = false;
 function showChrome(on) { document.body.classList.toggle('chrome', on); }
 
 /* ============================================================
@@ -1300,10 +1300,12 @@ function toggleAutoscroll() {
   if (autoRaf) stopAutoscroll(); else startAutoscroll();
 }
 
-/* Tap-to-fade: tap di mana saja di layar → tampilkan tombol play 5 detik */
+/* Tap-to-fade: tap di mana saja di layar → tampilkan tombol play 5 detik
+   (kecuali sedang tap-to-scroll, agar UI tidak muncul) */
 document.addEventListener('click', e => {
   if (document.body.dataset.view !== 'reader') return;
-  if (e.target.closest('#autoScroll')) return; // klik play → handle by toggleAutoscroll
+  if (tapScrollBlock) return; // tap-to-scroll → jangan tampilkan UI
+  if (e.target.closest('#autoScroll')) return;
   if (e.target.closest('.rbar, .sheet, .scrim, .botnav, header, a, button, input')) return;
   playfabFade();
 });
