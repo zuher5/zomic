@@ -11,5 +11,16 @@ dependencies = [
     "Pillow>=10.0,<13.0",
 ]
 
+# Build backend eksplisit + nonaktifkan auto-discovery paket: layout datar ini
+# (app.py di root, web/ & api/ hanya folder aset/entrypoint) membuat setuptools
+# menolak build dengan "Multiple top-level packages discovered (['api','web'])".
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
+py-modules = ["app", "komiku_web"]
+
 [tool.fastapi]
 entrypoint = "app:app"
