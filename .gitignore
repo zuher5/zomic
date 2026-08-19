@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+build/
+*.egg-info/
 
 # Environment / secrets (jangan commit nilai asli)
 .env
