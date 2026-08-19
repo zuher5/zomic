@@ -171,7 +171,6 @@ section.block{margin-top:var(--sp-6)}
 .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-4) var(--sp-3)}
 /* Varian "wide": cover lebih besar untuk blok editorial (rekomendasi). */
 .grid.wide{grid-template-columns:repeat(2,1fr);gap:var(--sp-5) var(--sp-4)}
-.grid.wide h3{font-size:var(--t-h2)}
 
 .rail{
   display:flex;gap:var(--sp-3);overflow-x:auto;scroll-snap-type:x proximity;
@@ -197,7 +196,7 @@ section.block{margin-top:var(--sp-6)}
 }
 [data-theme="light"] .comic .cover::after{box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
 .comic h3{
-  font-size:var(--t-h3);font-weight:600;line-height:1.25;margin-top:var(--sp-2);
+  font-size:13px;font-weight:600;line-height:1.25;margin-top:var(--sp-2);
   letter-spacing:-.015em;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
@@ -231,7 +230,7 @@ section.block{margin-top:var(--sp-6)}
 .ranks .n{font-size:var(--t-meta);color:var(--muted);text-align:right}
 .ranks .th{position:relative;aspect-ratio:2/3;background:var(--surface2);overflow:hidden;border-radius:var(--r-xs)}
 .ranks .th img{width:100%;height:100%;object-fit:cover}
-.ranks h3{font-size:15px;font-weight:600;line-height:1.25;
+.ranks h3{font-size:13px;font-weight:600;line-height:1.25;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ranks .meta{font-size:13px;color:var(--muted);margin-top:3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -528,7 +527,6 @@ body:not(.chrome) .rbar.top{transform:translateY(-100%);opacity:0}
 @media (min-width:768px){
   .grid{grid-template-columns:repeat(4,1fr);gap:var(--sp-5) var(--sp-4)}
   .grid.wide{grid-template-columns:repeat(4,1fr)}
-  .grid.wide h3{font-size:var(--t-h3)}
   .rail > *{flex-basis:clamp(130px,17vw,170px)}
   .ranks{grid-template-columns:repeat(2,1fr);column-gap:var(--sp-5)}
   .ranks a{padding-inline:var(--sp-2)}
