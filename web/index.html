@@ -451,42 +451,48 @@ body[data-view="reader"] .wrap{max-width:none;padding-inline:0}
   top:0;padding-top:env(safe-area-inset-top);
   border-bottom:1px solid rgba(255,255,255,.1);
 }
-.rbar.bottom{
-  bottom:0;padding-bottom:env(safe-area-inset-bottom);
-  border-top:1px solid rgba(255,255,255,.1);
-}
 body:not(.chrome) .rbar.top{transform:translateY(-100%);opacity:0}
-body:not(.chrome) .rbar.bottom{transform:translateY(100%);opacity:0}
-.rbar .inner{display:flex;align-items:center;gap:var(--sp-2);height:52px;padding-inline:var(--sp-3);
+.rbar .inner{display:flex;align-items:center;gap:var(--sp-2);min-height:52px;padding-block:5px;padding-inline:var(--sp-3);
   max-width:820px;margin-inline:auto}
-.rbar .rmeta{flex:1;min-width:0;line-height:1.25}
-.rbar .rmeta strong{display:block;font-size:var(--t-sm);font-weight:600;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rbar .rmeta span{font-size:var(--t-meta);color:var(--muted)}
+.rbar .rmeta{flex:1;min-width:0;line-height:1.3}
+.rbar .rmeta strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;font-size:var(--t-meta);font-weight:600;line-height:1.3}
+.rbar .rmeta span{font-size:var(--t-label);color:var(--muted)}
 .rbar .icon-btn:hover{border-color:rgba(255,255,255,.25)}
-.rbar.bottom .inner{gap:var(--sp-3)}
-.rbar.bottom .btn{border-color:rgba(255,255,255,.22);flex:1;min-height:40px;padding:8px 12px}
-.rbar.bottom .pos{font-size:var(--t-meta);color:var(--muted);white-space:nowrap}
 .progress{height:2px;background:var(--accent);width:0;transition:width .1s linear}
 
-/* floating autoscroll — tombol play di tengah bawah, tepat di atas bar Prev/Next.
-   Sembunyi otomatis 2 detik, autoscroll tetap jalan. Tap-to-scroll: tap 30%
-   bawah layar → scroll down + force fullscreen (UI sembunyi). */
-.playfab{
-  position:fixed;z-index:72;
-  left:50%;bottom:calc(52px + env(safe-area-inset-bottom));transform:translateX(-50%);
-  width:48px;height:48px;border-radius:50%;
+/* floating nav — prev/play/next sejajar di tengah bawah. Sembunyi otomatis
+   2 detik, autoscroll tetap jalan. Tap-to-scroll: tap 30% bawah layar →
+   scroll down + force fullscreen (UI sembunyi). */
+.floater{
+  position:fixed;z-index:72;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);display:flex;align-items:center;gap:12px;
+  opacity:0;pointer-events:none;transition:opacity .22s var(--ease);
+}
+.floater.on{opacity:1;pointer-events:auto}
+.floater .pill{
+  height:44px;min-width:52px;padding:0 20px;border-radius:999px;
+  display:grid;place-items:center;text-decoration:none;color:#fff;
+  background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  box-shadow:0 4px 16px rgba(0,0,0,.55);
+  transition:transform .15s var(--ease);
+}
+.floater .pill:active{transform:scale(.92)}
+.floater .pill[aria-disabled="true"]{opacity:.35;pointer-events:none}
+.floater .pill svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;
+  stroke-linecap:round;stroke-linejoin:round}
+.floater .playfab{
+  position:static;transform:none;width:48px;height:48px;border-radius:50%;
   display:grid;place-items:center;
   background:var(--accent);color:var(--on-accent);
   box-shadow:0 4px 16px rgba(0,0,0,.55);
-  transition:transform .15s var(--ease),opacity .22s var(--ease);
+  transition:transform .15s var(--ease);
 }
-.playfab:active{transform:translateX(-50%) scale(.92)}
-.playfab svg{width:22px;height:22px;fill:currentColor;stroke:none}
-/* Default hidden — inline style mengontrol fade in/out via playfabFade()/playfabHide() */
-.playfab{opacity:0;pointer-events:none}
+.floater .playfab:active{transform:scale(.92)}
+.floater .playfab svg{width:22px;height:22px;fill:currentColor;stroke:none}
 
-.rend{padding:var(--sp-6) var(--gutter) calc(var(--sp-7) + 52px);text-align:center}
+.rend{padding:var(--sp-6) var(--gutter) calc(var(--sp-7) + 16px);text-align:center}
 .rend .actions{max-width:420px;margin:var(--sp-4) auto 0}
 .rend .btn{border-color:rgba(255,255,255,.22)}
 .rend .btn.primary{border-color:transparent}
@@ -1139,9 +1145,9 @@ async function pageReader(slug, ch) {
     if (detail) pushHistory({ slug, ch, title, cover: detail.cover || '', pos: i >= 0 ? i + 1 : 0, total: chapters.length });
 
     const back = detailHref(slug);
-    const nav = (c, cls, dir) => c
-      ? `<a class="btn ${cls}" href="${readHref(slug, c.ch)}">${dir < 0 ? `${icon('chevL')} Prev` : `Next ${icon('chevR')}`}</a>`
-      : `<span class="btn ${cls}" aria-disabled="true">${dir < 0 ? `${icon('chevL')} Prev` : `Next ${icon('chevR')}`}</span>`;
+    const fnav = (c, dir) => c
+      ? `<a class="pill" href="${readHref(slug, c.ch)}" aria-label="${dir < 0 ? 'Chapter sebelumnya' : 'Chapter berikutnya'}">${svg(dir < 0 ? 'chevL' : 'chevR')}</a>`
+      : `<span class="pill" aria-disabled="true">${svg(dir < 0 ? 'chevL' : 'chevR')}</span>`;
 
     view.innerHTML = `
       <div class="rbar top">
@@ -1162,21 +1168,17 @@ async function pageReader(slug, ch) {
       <div class="rend">
         <p class="label">Chapter ${esc(ch)} selesai</p>
         <div class="actions">
-          ${nav(prev, '', -1)}
+          ${fnav(prev, -1)}
           <a class="btn" href="${back}">Detail</a>
-          ${nav(next, 'primary', 1)}
+          ${fnav(next, 1)}
         </div>
       </div>
 
-      <div class="rbar bottom">
-        <div class="inner">
-          ${nav(prev, '', -1)}
-          <span class="pos mono" id="pos">1/${pages.length}</span>
-          ${nav(next, 'primary', 1)}
-        </div>
+      <div class="floater" id="floater">
+        ${fnav(prev, -1)}
+        <button class="playfab" id="autoScroll" aria-label="Autoscroll" aria-pressed="false">${svg('play')}</button>
+        ${fnav(next, 1)}
       </div>
-
-      <button class="playfab" id="autoScroll" aria-label="Autoscroll" aria-pressed="false">${svg('play')}</button>
       <div class="scrim" id="scrim"></div>
       <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Daftar chapter" aria-hidden="true" inert>
         <div class="shead"><span class="label">${chapters.length} chapter</span>
@@ -1245,14 +1247,12 @@ let autoRaf = null, autoLast = 0, playfabTimer = null;
 const AUTO_PX = 96; // piksel per detik, kecepatan tetap
 
 function playfabHide() {
-  const fab = $('#autoScroll');
-  if (fab) { fab.style.opacity = '0'; fab.style.pointerEvents = 'none'; }
+  $('#floater')?.classList.remove('on');
 }
 
 function playfabFade() {
-  const fab = $('#autoScroll');
-  if (!fab) return;
-  fab.style.opacity = '1'; fab.style.pointerEvents = 'auto';
+  if (!$('#floater')) return;
+  $('#floater').classList.add('on');
   clearTimeout(playfabTimer);
   playfabTimer = setTimeout(playfabHide, 2000);
 }
@@ -1278,7 +1278,7 @@ function startAutoscroll() {
     fab.setAttribute('aria-label', 'Berhenti autoscroll');
   }
   clearTimeout(playfabTimer); // tampil terus saat autoscroll aktif
-  if (fab) { fab.style.opacity = '1'; fab.style.pointerEvents = 'auto'; }
+  if ($('#floater')) $('#floater').classList.add('on');
   autoLast = performance.now();
   const step = t => {
     const px = Math.max(0.5, (t - autoLast) / 1000 * AUTO_PX);
@@ -1313,12 +1313,11 @@ function onReaderScroll() {
     showChrome(y < lastY || y < 40);
     lastY = y;
   }
-  const el = $('#pages'), prog = $('#prog'), pos = $('#pos');
+  const el = $('#pages'), prog = $('#prog');
   if (el && prog) {
     const max = el.offsetTop + el.offsetHeight - window.innerHeight;
     const pct = max > 0 ? Math.min(1, Math.max(0, y / max)) : 1;
     prog.style.width = (pct * 100).toFixed(1) + '%';
-    if (pos && readerNav?.total) pos.textContent = `${Math.max(1, Math.ceil(pct * readerNav.total))}/${readerNav.total}`;
   }
 }
 window.addEventListener('scroll', () => {
