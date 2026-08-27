@@ -1,25 +1,44 @@
 <!DOCTYPE html>
-<html lang="id" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b0c0e">
-<meta name="description" content="Zomic — baca komik, manga, manhwa, dan manhua. Katalog lengkap, pembaca vertikal tanpa gangguan.">
-<title>Zomic — Baca Komik</title>
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Zomic — Read comics, manga, manhwa, and manhua. Full catalog, vertical reader, no interruptions.">
+<title>Zomic — Read Comics</title>
+<link rel="preload" href="/fonts/poppins-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/poppins-700.woff2" as="font" type="font/woff2" crossorigin>
 <style>
 /* ============================================================
+   FONTS — Poppins self-host (subset latin, font-display swap)
+   ============================================================ */
+@font-face{font-family:Poppins;font-style:normal;font-weight:400;font-display:swap;src:url("fonts/poppins-400.woff2") format("woff2")}
+@font-face{font-family:Poppins;font-style:normal;font-weight:600;font-display:swap;src:url("fonts/poppins-600.woff2") format("woff2")}
+@font-face{font-family:Poppins;font-style:normal;font-weight:700;font-display:swap;src:url("fonts/poppins-700.woff2") format("woff2")}
+@font-face{font-family:Poppins;font-style:normal;font-weight:800;font-display:swap;src:url("fonts/poppins-800.woff2") format("woff2")}
+
+/* ============================================================
    TOKENS
+   Dark editorial: hitam pekat, artwork-first. Satu aksen lime
+   for all interactions; other colors are only semantic (status).
+   Radius: kartu 6px, panel 12px, chip/filter pill penuh.
    ============================================================ */
 :root{
   color-scheme:dark;
-  --bg:#0b0c0e; --surface:#111317; --surface2:#181b20; --line:#292d34;
-  --text:#f1f1ed; --muted:#8c9199; --accent:#d7ff4f; --on-accent:#0b0c0e;
-  --danger:#ff7a6b;
-  --shade:rgba(11,12,14,.82);
+  --bg:#000000; --surface:#1f2129; --surface-strong:#40424d; --line:#292c35;
+  --text:#edf0f7; --muted:#9ca1ae; --dim:#686c78;
+  --accent:#d7ff4f; --on-accent:#0b0c0e;
+  --ok:#43d17a; --danger:#e84267;
+  --shade:rgba(0,0,0,.82);
+  /* semantic aliases (sec 17) — map to Zomic palette, do not introduce new colors */
+  --background:var(--bg); --surface-elevated:var(--surface-strong);
+  --surface-hover:#262836; --border:var(--line);
+  --text-primary:var(--text); --text-secondary:var(--muted); --text-muted:var(--dim);
+  --accent-hover:#e0ff7a; --success:var(--ok); --warning:#f5a623; --error:var(--danger);
 
-  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
-  --r-xs:2px; --r-sm:4px; --r-md:8px;
-  --maxw:1180px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px; --sp-8:64px;
+  --r-xs:6px; --r-sm:8px; --r-md:12px; --r-pill:999px;
+  --maxw:1220px;
   --gutter:clamp(14px,4vw,28px);
 
   --t-label:.68rem; --t-meta:.75rem; --t-sm:.82rem; --t-body:.92rem;
@@ -27,23 +46,16 @@
   --t-h2:clamp(1.02rem,3.6vw,1.2rem);
   --t-h1:clamp(1.5rem,7vw,2.1rem);
 
-  --header-h:52px;
+  --header-h:56px;
   --nav-h:calc(56px + env(safe-area-inset-bottom));
   --ease:cubic-bezier(.4,0,.2,1);
-}
-[data-theme="light"]{
-  color-scheme:light;
-  --bg:#f3f2ed; --surface:#faf9f5; --surface2:#e8e7e1; --line:#d5d4ce;
-  --text:#151618; --muted:#6d7075; --accent:#5f7a00; --on-accent:#faf9f5;
-  --danger:#b3261e;
-  --shade:rgba(243,242,237,.86);
 }
 
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;overflow-x:clip}
 body{
   margin:0;background:var(--bg);color:var(--text);
-  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  font-family:Poppins,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   font-size:16px;line-height:1.55;letter-spacing:-.005em;
   -webkit-font-smoothing:antialiased;
 }
@@ -69,14 +81,14 @@ header.top{
   border-bottom:1px solid var(--line);
   padding-top:env(safe-area-inset-top);
 }
-.top .bar{display:flex;align-items:center;gap:var(--sp-2);height:var(--header-h)}
+.top .bar{display:flex;align-items:center;gap:var(--sp-3);height:var(--header-h)}
 .brand{
   display:inline-flex;align-items:baseline;gap:2px;margin-right:auto;
   font-weight:800;font-size:1.02rem;letter-spacing:.14em;text-transform:uppercase;
 }
 .brand i{width:5px;height:5px;background:var(--accent);border-radius:50%;display:inline-block;margin-left:1px}
 .icon-btn{
-  display:grid;place-items:center;width:38px;height:38px;
+  display:grid;place-items:center;width:40px;height:40px;
   border:1px solid transparent;border-radius:var(--r-sm);color:var(--muted);
   transition:color .15s var(--ease),border-color .15s var(--ease);
 }
@@ -95,17 +107,22 @@ header.top{
   content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--accent);
 }
 
-/* search field */
+/* search field — pill gelap dengan outline halus, prominent di header */
 .search{display:flex;align-items:center;gap:var(--sp-2);width:100%}
 .search input{
-  flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--line);
-  padding:10px 2px;font-size:var(--t-body);
+  flex:1;min-width:0;height:38px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-pill);
+  padding:0 16px 0 36px;font-size:14px;line-height:18px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca1ae' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4.5-4.5'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:12px center;background-size:16px 16px;
+  transition:border-color .15s var(--ease),background-color .15s var(--ease);
 }
 .search input::placeholder{color:var(--muted)}
-.search input:focus{outline:none;border-bottom-color:var(--accent)}
+.search input:hover{border-color:var(--muted)}
+.search input:focus{outline:none;border-color:var(--accent);background-color:var(--surface-hover)}
 .search .go{
   font-size:var(--t-label);letter-spacing:.12em;text-transform:uppercase;font-weight:700;
-  padding:9px 12px;background:var(--accent);color:var(--on-accent);border-radius:var(--r-sm);
+  padding:10px 16px;background:var(--accent);color:var(--on-accent);border-radius:var(--r-pill);
 }
 .top .search-row{display:none;padding-bottom:var(--sp-3)}
 .top.open .search-row{display:block}
@@ -116,23 +133,35 @@ header.top{
 .back .icn svg,.cta .icn svg,.more .icn svg{width:14px;height:14px}
 .btn .icn svg{width:15px;height:15px}
 .fav .icn svg{width:17px;height:17px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
-.icn.filled svg{color:var(--accent)}
+.icn.filled svg{fill:currentColor;color:#fff}
 
 /* ============================================================
-   BOTTOM NAV (mobile)
+   BOTTOM NAV (mobile) — floating pill kaca di atas konten.
+   Consistent form language with search/filter/floater: full rounded.
+   Item aktif ditandai pill tint lime + ikon lime (bukan warna baru).
    ============================================================ */
 .botnav{
-  position:fixed;left:0;right:0;bottom:0;z-index:60;
-  display:grid;grid-template-columns:repeat(5,1fr);
-  background:var(--bg);border-top:1px solid var(--line);
-  padding-bottom:env(safe-area-inset-bottom);
+  position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(10px + env(safe-area-inset-bottom));
+  z-index:60;display:grid;grid-template-columns:repeat(4,1fr);
+  width:min(calc(100% - var(--gutter) * 2), 420px);
+  background:rgba(31,33,41,.88);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  border:1px solid var(--line);border-radius:var(--r-pill);
+  box-shadow:0 8px 24px rgba(0,0,0,.45);
+  padding:6px;
 }
 .botnav a{
-  display:grid;justify-items:center;gap:3px;padding:9px 0 7px;color:var(--muted);
+  display:grid;justify-items:center;gap:3px;padding:8px 0 6px;color:var(--muted);
   font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;
+  border-radius:var(--r-pill);
+  transition:transform .12s var(--ease),background .15s var(--ease),color .15s var(--ease);
 }
+.botnav a:active{transform:scale(.94)}
 .botnav svg{width:20px;height:20px}
-.botnav a[aria-current="page"]{color:var(--text)}
+.botnav a[aria-current="page"]{
+  color:var(--text);background:rgba(215,255,79,.14);
+}
 .botnav a[aria-current="page"] svg{stroke:var(--accent)}
 
 main{display:block;padding-block:var(--sp-5) calc(var(--nav-h) + var(--sp-6))}
@@ -158,7 +187,7 @@ section.block{margin-top:var(--sp-6)}
   display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);
   padding-bottom:12px;margin-bottom:20px;border-bottom:1px solid var(--line);
 }
-/* Blok bertab: judul tanpa garis penuh, jarak diberi oleh ruang kosong saja. */
+/* Tabbed block: heading without full separator, spacing comes from whitespace alone. */
 .block.tabs > .block-head{border-bottom:0;padding-bottom:0;margin-bottom:14px}
 .block.tabs + section.block{margin-top:44px}
 .block-head h2{font-size:var(--t-h2);font-weight:700;letter-spacing:-.02em;line-height:1.25}
@@ -180,12 +209,13 @@ section.block{margin-top:var(--sp-6)}
 .rail::-webkit-scrollbar{display:none}
 .rail > *{flex:0 0 clamp(106px,29vw,150px);scroll-snap-align:start}
 
-.comic{position:relative;min-width:0}
+.comic{position:relative;min-width:0;transition:transform .15s var(--ease)}
 .comic .cover{
   position:relative;display:block;aspect-ratio:2/3;overflow:hidden;isolation:isolate;
-  background:var(--surface2);border-radius:var(--r-xs);
+  background:var(--surface);border-radius:var(--r-xs);border:1px solid transparent;
+  transition:border-color .15s var(--ease),transform .15s var(--ease),box-shadow .15s var(--ease);
 }
-.comic .cover img{position:relative;z-index:1;width:100%;height:100%;object-fit:cover;transition:opacity .3s var(--ease)}
+.comic .cover img{position:relative;z-index:1;width:100%;height:100%;object-fit:cover;transition:opacity .2s var(--ease),transform .2s var(--ease)}
 .comic .cover .ph,.dhead .cover .ph{
   position:absolute;inset:0;display:grid;place-items:center;
   font-size:1.8rem;font-weight:800;color:var(--muted);opacity:.45;
@@ -194,7 +224,6 @@ section.block{margin-top:var(--sp-6)}
   content:"";position:absolute;inset:0;z-index:2;
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);pointer-events:none;
 }
-[data-theme="light"] .comic .cover::after{box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
 .comic h3{
   font-size:13px;font-weight:600;line-height:1.25;margin-top:var(--sp-2);
   letter-spacing:-.015em;
@@ -206,17 +235,28 @@ section.block{margin-top:var(--sp-6)}
 }
 .comic .meta .dot{opacity:.5}
 .tag{
-  position:absolute;top:0;left:0;z-index:3;padding:3px 6px;
+  position:absolute;top:6px;left:6px;z-index:3;padding:3px 6px;
   font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
-  background:var(--shade);backdrop-filter:blur(6px);color:var(--text);
+  background:var(--shade);backdrop-filter:blur(6px);color:var(--text);border-radius:4px;
 }
-.tag.color{top:auto;bottom:0;background:var(--accent);color:var(--on-accent)}
+.tag.color{top:auto;bottom:28px;background:var(--accent);color:var(--on-accent)}
+.tag.new{top:auto;bottom:6px;left:auto;right:6px;background:var(--accent);color:var(--on-accent);font-size:.58rem;padding:2px 5px}
+/* Strip chapter di dasar cover (pola Manta: status akses/tempel di dasar gambar). */
+.comic .strip{
+  position:absolute;left:0;right:0;bottom:0;z-index:2;
+  padding:16px 8px 5px;display:flex;justify-content:flex-end;
+  font-size:.62rem;font-weight:600;letter-spacing:.02em;color:#fff;
+  background:linear-gradient(180deg,transparent,rgba(0,0,0,.78));
+  pointer-events:none;
+}
 .fav{
   position:absolute;top:0;right:0;z-index:4;width:38px;height:38px;display:grid;place-items:center;
   color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);font-size:1.05rem;line-height:1;
 }
-.fav[aria-pressed="true"]{color:var(--accent)}
-.comic .cover:hover img{opacity:.86}
+.fav[aria-pressed="true"]{color:#fff}
+.comic:hover .cover{border-color:var(--line);box-shadow:0 4px 16px rgba(0,0,0,.35);transform:translateY(-1px)}
+.comic .cover:hover img{opacity:.92;transform:scale(1.01)}
+.comic:focus-within .cover{border-color:var(--accent)}
 
 /* ranked list */
 .ranks{display:grid}
@@ -228,7 +268,7 @@ section.block{margin-top:var(--sp-6)}
 .ranks a:first-child{border-top:0}
 .ranks a:hover{background:var(--surface)}
 .ranks .n{font-size:var(--t-meta);color:var(--muted);text-align:right}
-.ranks .th{position:relative;aspect-ratio:2/3;background:var(--surface2);overflow:hidden;border-radius:var(--r-xs)}
+.ranks .th{position:relative;aspect-ratio:2/3;background:var(--surface);overflow:hidden;border-radius:var(--r-xs)}
 .ranks .th img{width:100%;height:100%;object-fit:cover}
 .ranks h3{font-size:13px;font-weight:600;line-height:1.25;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -239,22 +279,21 @@ section.block{margin-top:var(--sp-6)}
 /* continue reading */
 .cont{display:grid;gap:var(--sp-3)}
 .resume{
-  display:grid;grid-template-columns:86px 1fr;gap:var(--sp-4);align-items:center;
+  display:grid;grid-template-columns:auto 1fr;gap:var(--sp-4);align-items:center;
   background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
   padding:var(--sp-4);position:relative;overflow:hidden;
 }
 .resume::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);pointer-events:none}
-[data-theme="light"] .resume::after{box-shadow:none}
-.resume .rcover{position:relative;aspect-ratio:2/3;background:var(--surface2);overflow:hidden;border-radius:var(--r-xs);display:grid;place-items:center}
+.resume .rcover{position:relative;width:clamp(84px,18vw,104px);aspect-ratio:1/1;background:var(--surface);overflow:hidden;border-radius:var(--r-sm);display:grid;place-items:center;flex:0 0 auto}
 .resume .rcover img{width:100%;height:100%;object-fit:cover}
-.resume .rinfo{min-width:0;display:flex;flex-direction:column}
+.resume .rinfo{min-width:0;display:flex;flex-direction:column;justify-content:center}
 .resume .rtitle{font-size:var(--t-body);font-weight:700;line-height:1.3;letter-spacing:-.01em;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .resume .rcap{font-size:var(--t-meta);color:var(--muted);margin-top:2px}
 .resume .rprog{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-3)}
 /* Nama kelas khusus (bukan .rbar) agar tidak bentrok dengan toolbar reader
    yang position:fixed — dulu bar ini ikut jadi fixed & melayang di viewport. */
-.resume .rtrack{flex:1;display:block;height:3px;background:var(--surface2);border-radius:2px;overflow:hidden}
+.resume .rtrack{flex:1;display:block;height:3px;background:var(--surface);border-radius:2px;overflow:hidden}
 .resume .rtrack span{display:block;height:100%;background:var(--accent);border-radius:2px}
 .resume .rpct{font-size:var(--t-meta);color:var(--accent);white-space:nowrap}
 .resume .rrow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);margin-top:var(--sp-3)}
@@ -269,7 +308,7 @@ section.block{margin-top:var(--sp-6)}
   padding:var(--sp-2) var(--sp-2);border:1px solid transparent;border-radius:var(--r-sm);
 }
 .rrow2:hover{background:var(--surface);border-color:var(--line)}
-.rrow2 .r2c{position:relative;aspect-ratio:2/3;background:var(--surface2);overflow:hidden;border-radius:var(--r-xs);display:grid;place-items:center}
+.rrow2 .r2c{position:relative;aspect-ratio:2/3;background:var(--surface);overflow:hidden;border-radius:var(--r-xs);display:grid;place-items:center}
 .rrow2 .r2c img{width:100%;height:100%;object-fit:cover}
 .rrow2 .r2t{min-width:0;display:flex;flex-direction:column}
 .rrow2 .r2t strong{font-size:var(--t-sm);font-weight:600;line-height:1.3;
@@ -278,15 +317,60 @@ section.block{margin-top:var(--sp-6)}
 .rrow2 .r2go{color:var(--muted)}
 .rrow2:hover .r2go{color:var(--text)}
 
-/* segmented switch (semantic tabs) — underline hanya pada tab aktif */
+/* Continue Reading hero + Quick Access (blueprint 3.1) */
+.cont-main{position:relative}
+
+/* segmented switch (semantic tabs) — underline hanya pada tab aktif.
+   Mendukung <button> (panel toggle) dan <a> (navigasi tab). */
 .seg{display:flex;gap:18px;margin-bottom:var(--sp-3)}
-.seg button{
+.seg :is(a,button){
   padding:0 0 6px;font-size:var(--t-sm);color:var(--muted);position:relative;font-weight:600;
 }
-.seg button[aria-selected="true"]{color:var(--text)}
-.seg button[aria-selected="true"]::after{
+.seg :is(a,button)[aria-selected="true"],
+.seg :is(a,button)[aria-current="true"]{color:var(--text)}
+.seg :is(a,button)[aria-selected="true"]::after,
+.seg :is(a,button)[aria-current="true"]::after{
   content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--accent);
 }
+
+/* ============================================================
+   BILLBOARD — peek carousel compact (rasio 16:9 mendekati rasio
+   banner upstream ±2:1, jadi crop hanya tipis di sisi kiri/kanan).
+   Autoplay 6 dtk berhenti saat hover/focus/tab tersembunyi/interaksi;
+   tidak jalan sama sekali bila prefers-reduced-motion. Navigasi cukup
+   swipe — tanpa tombol/indikator.
+   ============================================================ */
+.bb{position:relative;margin-top:var(--sp-2)}
+.bb-track{
+  display:flex;gap:var(--sp-3);overflow-x:auto;scroll-snap-type:x mandatory;
+  scrollbar-width:none;
+  padding-block:2px;
+  padding-inline:calc((100% - min(90vw,520px)) / 2);
+}
+.bb-track::-webkit-scrollbar{display:none}
+.bb-slide{
+  position:relative;flex:0 0 min(90vw,520px);scroll-snap-align:center;
+  aspect-ratio:16/9;border-radius:var(--r-md);overflow:hidden;
+  background:var(--surface);isolation:isolate;
+}
+@media (min-width:900px){
+  .bb-slide{flex-basis:min(52vw,600px)}
+  .bb-track{padding-inline:calc((100% - min(52vw,600px)) / 2)}
+}
+.bb-bg{position:absolute;inset:0;z-index:0}
+.bb-bg img{width:100%;height:100%;object-fit:cover}
+.bb-fade{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(0,0,0,.05) 32%,rgba(0,0,0,.86));
+}
+.bb-txt{position:absolute;left:0;right:0;bottom:0;z-index:2;display:grid;gap:3px;padding:var(--sp-3)}
+.bb-title{
+  font-size:clamp(.95rem,3.4vw,1.25rem);font-weight:700;line-height:1.15;letter-spacing:-.02em;
+  text-shadow:0 1px 8px rgba(0,0,0,.5);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.bb-meta{font-size:var(--t-meta);color:#d6dae2}
+.bb-meta .dot{opacity:.55;margin:0 4px}
 
 /* genre index — parent grid transparan supaya baris terakhir yang tidak penuh
    tidak menampilkan blok warna berbeda (bekas background var(--line)) */
@@ -304,17 +388,24 @@ section.block{margin-top:var(--sp-6)}
    ============================================================ */
 .filters{display:grid;gap:var(--sp-2);margin-bottom:var(--sp-4)}
 .frow{
-  display:flex;gap:var(--sp-1);overflow-x:auto;scrollbar-width:none;
+  display:flex;gap:var(--sp-2);overflow-x:auto;scrollbar-width:none;
   margin-inline:calc(var(--gutter) * -1);padding-inline:var(--gutter);
 }
 .frow::-webkit-scrollbar{display:none}
 .frow a{
-  padding:5px 9px;font-size:var(--t-meta);color:var(--muted);white-space:nowrap;
-  border:1px solid transparent;border-radius:var(--r-sm);
+  display:inline-flex;align-items:center;min-height:44px;padding:0 16px;
+  font-size:var(--t-meta);color:var(--text);white-space:nowrap;
+  border:1px solid var(--line);border-radius:var(--r-pill);background:transparent;
+  transition:border-color .15s var(--ease),background .15s var(--ease);
 }
-.frow a:hover{color:var(--text)}
-.frow a[aria-current="true"]{background:var(--accent);color:var(--on-accent);font-weight:700}
-.frow.az a{min-width:28px;text-align:center;padding-inline:4px}
+.frow a:hover{border-color:var(--muted)}
+.frow a[aria-current="true"]{background:var(--accent);border-color:transparent;color:var(--on-accent);font-weight:700}
+/* Desktop: pill 36px sesuai spec; target sentuh 44px tetap di mobile. */
+@media (hover:hover) and (pointer:fine){
+  .frow a{min-height:36px;padding:0 14px}
+}
+.frow.az{gap:var(--sp-1)}
+.frow.az a{min-width:44px;padding:0;justify-content:center}
 
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;
@@ -346,7 +437,7 @@ section.block{margin-top:var(--sp-6)}
 .state p:not(.label){font-size:var(--t-sm);color:var(--muted);margin-top:var(--sp-2)}
 .state .btn{margin-top:var(--sp-4)}
 .state.err .label{color:var(--danger)}
-.skel{background:var(--surface2);position:relative;overflow:hidden}
+.skel{background:var(--surface);position:relative;overflow:hidden}
 .skel::after{
   content:"";position:absolute;inset:0;transform:translateX(-100%);
   background:linear-gradient(90deg,transparent,var(--line),transparent);
@@ -369,38 +460,57 @@ section.block{margin-top:var(--sp-6)}
 }
 .back svg{width:15px;height:15px}
 .back:hover{color:var(--text)}
-.dhead{display:grid;grid-template-columns:minmax(112px,34vw) 1fr;gap:var(--sp-4)}
-.dhead .cover{position:relative;aspect-ratio:2/3;background:var(--surface2);overflow:hidden;border-radius:var(--r-xs)}
+/* Detail dua kolom desktop (pola Manta): identitas & sinopsis kiri,
+   status + daftar chapter kanan. Mobile menyatu satu kolom mengikuti DOM. */
+.dwrap{display:grid;gap:var(--sp-5)}
+@media (min-width:900px){
+  .dwrap{grid-template-columns:minmax(300px,400px) 1fr;gap:var(--sp-6);align-items:start}
+}
+.crumb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:var(--t-meta);color:var(--muted);margin-bottom:var(--sp-4)}
+.crumb a:hover{color:var(--text);text-decoration:underline}
+.crumb span{opacity:.5}
+.dhead{display:grid;gap:var(--sp-4)}
+.dhead .cover{position:relative;aspect-ratio:2/3;background:var(--surface);overflow:hidden;border-radius:var(--r-xs);max-width:220px;width:100%;margin:0 auto}
 .dhead .cover img{position:relative;z-index:1;width:100%;height:100%;object-fit:cover}
 .dhead h1{font-size:clamp(1.25rem,5.4vw,1.8rem);font-weight:800;letter-spacing:-.03em;line-height:1.12;text-wrap:balance}
 .dhead .alt{font-size:var(--t-sm);color:var(--muted);margin-top:var(--sp-1)}
-.genres{display:flex;flex-wrap:wrap;gap:0 6px;margin-top:var(--sp-3);font-size:var(--t-meta)}
-.genres a{color:var(--muted);border-bottom:1px solid var(--line)}
-.genres a:hover{color:var(--accent);border-color:var(--accent)}
-.genres .dot{color:var(--muted);opacity:.5}
+.dhead .dmeta{font-size:var(--t-meta);color:var(--muted);margin-top:var(--sp-2);display:flex;flex-wrap:wrap;gap:var(--sp-2) 10px;align-items:center}
+.dhead .dmeta b{color:var(--text)}
+@media (min-width:600px){
+  .dhead{grid-template-columns:180px 1fr;align-items:start}
+  .dhead .cover{margin:0;max-width:none}
+}
+.genres{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--sp-3)}
+.genres a{font-size:.72rem;padding:4px 10px;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);background:transparent;transition:border-color .15s var(--ease),color .15s var(--ease)}
+.genres a:hover{color:var(--text);border-color:var(--muted);background:var(--surface)}
+.genres .dot{display:none}
 
 .facts{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-3);margin-top:var(--sp-5)}
 .facts > div{border-top:1px solid var(--line);padding-top:var(--sp-2);min-width:0}
 .facts dt{font-size:var(--t-label);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .facts dd{margin:2px 0 0;font-size:var(--t-sm);font-weight:600;overflow-wrap:anywhere}
-.actions{display:flex;gap:var(--sp-2);margin-top:var(--sp-5)}
-.actions .btn{flex:1}
-.actions .btn.icon{flex:0 0 48px;padding:0}
+.actions{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-top:var(--sp-5);align-items:center}
+.actions .btn{min-height:44px}
+.actions .btn.primary{flex:1 1 200px}
+.actions .btn.icon{flex:0 0 48px;padding:0;align-self:stretch}
 .syn{font-size:var(--t-body);color:var(--text);opacity:.9;white-space:pre-line}
 .syn.clamped{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
 .syn-toggle{margin-top:var(--sp-2);font-size:var(--t-label);letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--accent)}
 
-/* chapter list */
-.chapters{display:flex;flex-direction:column}
+/* chapter list — compact, alignment consistent, hover subtle, focus visible (sec 12) */
+.chapters{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
 .chapters a{
   display:flex;align-items:center;gap:var(--sp-3);
-  padding:var(--sp-3) 0;border-top:1px solid var(--line);min-height:48px;
+  padding:12px var(--sp-3);border-top:1px solid var(--line);min-height:48px;
+  transition:background .12s var(--ease);
 }
-.chapters a:last-child{border-bottom:1px solid var(--line)}
-.chapters a:hover{background:var(--surface)}
+.chapters a:first-child{border-top:0}
+.chapters a:hover{background:var(--surface-hover)}
+.chapters a:focus-visible{outline-offset:-2px;background:var(--surface-hover)}
 .chapters .ch{font-size:var(--t-sm);font-weight:600;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chapters .when{font-size:var(--t-meta);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.chapters .badge-new{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--on-accent);background:var(--accent);padding:2px 6px;border-radius:999px}
 .chapters a.read .ch{color:var(--muted);font-weight:400}
 .chapters a.read .label{font-size:.6rem;letter-spacing:.1em;color:var(--accent);opacity:.8}
 .chapters a::before{content:"";width:5px;height:5px;border-radius:50%;flex:0 0 auto}
@@ -417,13 +527,10 @@ section.block{margin-top:var(--sp-6)}
 /* ============================================================
    READER
    ============================================================ */
-/* Reader selalu gelap, apa pun temanya: latar terang menyilaukan saat membaca
-   halaman komik full-bleed. Token dipetakan ulang di scope ini saja. */
+/* Reader sudah gelap secara global; blok ini hanya menata struktur
+   full-bleed dan menyembunyikan shell navigasi. */
 body[data-view="reader"]{
   background:#000;
-  --bg:#000; --surface:#111317; --surface2:#181b20; --line:#292d34;
-  --text:#f1f1ed; --muted:#8c9199; --shade:rgba(0,0,0,.72);
-  --accent:#d7ff4f; --on-accent:#0b0c0e;
 }
 body[data-view="reader"] header.top,
 body[data-view="reader"] .botnav{display:none}
@@ -436,7 +543,7 @@ body[data-view="reader"] .wrap{max-width:none;padding-inline:0}
    Setelah load, min-height dilepas agar rasio asli halaman komik dipertahankan. */
 .pages img{display:block;width:100%;height:auto;background:#0e0e0e;min-height:60svh}
 .pages img.done{min-height:0}
-.pages .pfail{padding:var(--sp-5);text-align:center;color:#8c9199;font-size:var(--t-meta)}
+.pages .pfail{padding:var(--sp-5);text-align:center;color:var(--muted);font-size:var(--t-meta)}
 @media (min-width:820px){
   .pages{max-width:780px;margin-inline:auto}
 }
@@ -542,7 +649,7 @@ body:not(.chrome) .rbar.top{transform:translateY(-100%);opacity:0}
   .top .bar{height:60px;gap:var(--sp-4)}
   .brand{margin-right:var(--sp-2)}
   .desknav{display:flex;gap:var(--sp-4);margin-right:auto}
-  .top .bar .search{max-width:280px;flex:0 1 280px}
+  .top .bar .search{max-width:360px;flex:0 1 360px}
   .top .bar .search-inline{display:flex}
   .top #searchToggle{display:none}
   .top.open .search-row{display:none}
@@ -552,7 +659,7 @@ body:not(.chrome) .rbar.top{transform:translateY(-100%);opacity:0}
 }
 @media (max-width:479px){
   .resume{grid-template-columns:64px 1fr;gap:var(--sp-3);padding:var(--sp-3)}
-  .resume .rcover{border-radius:var(--r-xs)}
+  .resume .rcover{width:64px;border-radius:var(--r-xs)}
   .resume .rrow{flex-wrap:wrap;gap:var(--sp-2) var(--sp-3)}
   .resume .rgo{margin-left:auto}
   .resume .ph,.r2c .ph{font-size:1.5rem}
@@ -571,10 +678,6 @@ body:not(.chrome) .rbar.top{transform:translateY(-100%);opacity:0}
   *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
   .rail{scroll-behavior:auto}
 }
-/* Cover dengan rasio menyimpang jauh dari 2:3 (banner horizontal / hampir kotak)
-   ditampilkan utuh (contain) supaya tidak terpotong oleh object-fit:cover.
-   Kelas .wide dipasang via JS setelah gambar selesai dimuat. */
-img[data-cover].wide{object-fit:contain}
 </style>
 </head>
 <body>
@@ -582,23 +685,22 @@ img[data-cover].wide{object-fit:contain}
 <header class="top" id="top">
   <div class="wrap">
     <div class="bar">
-      <a class="brand" href="#/" aria-label="Zomic — beranda">Zomic<i aria-hidden="true"></i></a>
+      <a class="brand" href="#/" aria-label="Zomic — home">Zomic<i aria-hidden="true"></i></a>
 
-      <nav class="desknav" id="desknav" aria-label="Navigasi utama"></nav>
+      <nav class="desknav" id="desknav" aria-label="Main navigation"></nav>
       <form class="search search-inline" data-search role="search">
-        <input type="search" name="q" placeholder="Cari judul komik…" aria-label="Cari komik" autocomplete="off">
+        <input type="search" name="q" placeholder="Search comic titles…" aria-label="Search comics" autocomplete="off">
       </form>
 
-      <button class="icon-btn" id="searchToggle" aria-expanded="false" aria-controls="searchRow" aria-label="Cari komik">
+      <button class="icon-btn" id="searchToggle" aria-expanded="false" aria-controls="searchRow" aria-label="Search comics">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.5-4.5"/></svg>
       </button>
-      <button class="icon-btn" id="themeBtn" aria-label="Ganti tema"></button>
     </div>
 
     <div class="search-row" id="searchRow">
       <form class="search" data-search role="search">
-        <input type="search" name="q" placeholder="Cari judul, penulis…" aria-label="Cari komik" autocomplete="off">
-        <button class="go" type="submit">Cari</button>
+        <input type="search" name="q" placeholder="Search titles, authors…" aria-label="Search comics" autocomplete="off">
+        <button class="go" type="submit">Search</button>
       </form>
     </div>
   </div>
@@ -606,7 +708,7 @@ img[data-cover].wide{object-fit:contain}
 
 <main id="view" class="wrap" aria-live="polite"></main>
 
-<nav class="botnav" id="botnav" aria-label="Navigasi utama"></nav>
+<nav class="botnav" id="botnav" aria-label="Main navigation"></nav>
 
 <script>
 "use strict";
@@ -645,23 +747,11 @@ const S_RESUME = '(max-width:479px) 64px, 86px';
 const S_R2 = '40px';
 const S_TH = '70px';
 /* Cover rasio ekstrem (banner landscape r>1, atau super tinggi r<0.5) diberi
-   class .wide → object-fit:contain supaya tidak terpotong. Cover portrait biasa
-   (~0.7, sudah di-resolve ke manga_thumbnail oleh backend) tetap object-fit:cover
-   agar tidak letterbox. Load event tidak bubble, jadi dipasang di fase capture. */
-function fitCover(img) {
-  if (img.dataset.fitDone) return;
-  img.dataset.fitDone = '1';
-  const r = img.naturalWidth / img.naturalHeight;
-  if (r > 0 && (r > 1.0 || r < 0.5)) img.classList.add('wide');
-}
-document.addEventListener('load', e => {
-  const t = e.target;
-  // 'cover' in t.dataset (bukan truthiness): data-cover dipasang tanpa nilai,
-  // jadi dataset.cover === '' yang falsy — cek keberadaan atribut, bukan nilainya.
-  if (t instanceof HTMLImageElement && 'cover' in t.dataset) fitCover(t);
-}, true);
+   class .wide → object-fit:contain supaya tidak terpotong. Threshold 0.8
+   menangkap gambar landscape ringan (4:3 ~1.33) yang sebelumnya terpotong
+   halus oleh object-fit:cover. Load event tidak bubble, jadi dipasang di fase capture. */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const DOT = '<span class="dot" aria-hidden="true">·</span>';
+const DOT = ' <span class="dot" aria-hidden="true">·</span> ';
 const joinDot = parts => parts.filter(Boolean).map(esc).join(DOT);
 const detailHref = slug => `#/komik/${encodeURIComponent(slug)}`;
 const readHref = (slug, ch) => `#/baca/${encodeURIComponent(slug)}/${encodeURIComponent(ch)}`;
@@ -669,20 +759,15 @@ const initials = t => esc(String(t || '?').trim().charAt(0).toUpperCase());
 
 function timeAgo(ts) {
   const s = Math.max(1, (Date.now() - ts) / 1000);
-  if (s < 3600) return Math.floor(s / 60) + ' mnt lalu';
-  if (s < 86400) return Math.floor(s / 3600) + ' jam lalu';
-  if (s < 604800) return Math.floor(s / 86400) + ' hari lalu';
+  if (s < 3600) return Math.floor(s / 60) + ' min ago';
+  if (s < 86400) return Math.floor(s / 3600) + ' hours ago';
+  if (s < 604800) return Math.floor(s / 86400) + ' days ago';
   return new Date(ts).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
 }
 
 const ICON = {
   home: '<path d="M4 10.5 12 4l8 6.5V20H4z"/>',
   grid: '<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>',
-  star: '<path d="M12 4l2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7z"/>',
-  starF: '<path fill="currentColor" stroke="none" d="M12 2.8l3 6.1 6.7 1-4.9 4.7 1.2 6.6-6-3.1-6 3.1 1.2-6.6L2.3 9.9l6.7-1z"/>',
-  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 1.8"/>',
-  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8.2 8.2 0 1 0 10.5 10.5z"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8-1.4 1.4m-10 10-1.4 1.4"/>',
   flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
   play: '<path d="M7 4.5l11 7.5-11 7.5z"/>',
   pause: '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>',
@@ -694,11 +779,13 @@ const ICON = {
   filter: '<path d="M3 5h18l-6.5 7.5V19l-5 2.5v-9z"/>',
   sort: '<path d="M4 7h16M7 12h10M10 17h4"/>',
   tags: '<path d="M3 10V3h7l11 11-7 7L3 16V10z"/><path d="M8 8h.01"/>',
+  bookmark: '<path d="M6.5 4.5h11V20l-5.5-3.6L6.5 20z"/>',
+  bookmarkF: '<path fill="currentColor" stroke="none" d="M6 3.5h12V21l-6-4-6 4z"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
 };
 const svg = (name, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
 const icon = (name, cls = '') => `<span class="icn" aria-hidden="true">${svg(name, cls)}</span>`;
-const favIcn = on => icon(on ? 'starF' : 'star', on ? 'filled' : '');
+const favIcn = on => icon(on ? 'bookmarkF' : 'bookmark', on ? 'filled' : '');
 
 /* ============================================================
    STORAGE — favorit, riwayat, chapter terbaca, tema
@@ -744,8 +831,8 @@ const empty = (title, note = '') => `<div class="state">
   <p class="label">${esc(title)}</p>${note ? `<p>${esc(note)}</p>` : ''}</div>`;
 function fail(e) {
   view.innerHTML = `<div class="state err">
-    <p class="label">Gagal memuat</p><p>${esc(e.message)}</p>
-    <button class="btn" data-retry>Coba lagi</button></div>`;
+    <p class="label">Failed to load</p><p>${esc(e.message)}</p>
+    <button class="btn" data-retry>Try again</button></div>`;
 }
 const skelCard = () => `<div class="comic" aria-hidden="true">
   <div class="skel skel-cover"></div><div class="skel skel-line w80"></div>
@@ -759,36 +846,47 @@ const skelRail = n => `<div class="rail">${Array.from({ length: n }, skelCard).j
 function card(c, sizes = S_GRID) {
   const slug = c.slug || '';
   const href = detailHref(slug);
-  const meta = joinDot([c.chapter, c.update, c.genre, c.status].filter(Boolean).slice(0, 2));
   const fav = isFav(slug);
+  // NEW badge: consider recent update (jam/menit/hari with small number) as NEW
+  const update = c.update || '';
+  const isNew = /(\bBaru\b|mnt|jam)/i.test(update) || (c._isNew === true);
+  const metaParts = [];
+  if (c.chapter) metaParts.push(c.chapter);
+  if (c.rating) metaParts.push('★ ' + c.rating);
+  else if (c.update) metaParts.push(c.update);
+  else if (c.genre) metaParts.push(c.genre);
+  const meta = metaParts.slice(0,2).map(esc).join(DOT);
+  const showRating = c.rating ? `<span class="meta-rating">★ ${esc(c.rating)}</span>` : '';
   return `<article class="comic">
     <a class="cover" href="${href}" tabindex="-1" aria-hidden="true">
       <span class="ph">${initials(c.title)}</span>
       ${c.cover ? coverImg(c.cover, 300, sizes) : ''}
       ${c.type ? `<span class="tag">${esc(c.type)}</span>` : ''}
-      ${c.colored ? '<span class="tag color">Warna</span>' : ''}
+      ${c.colored ? '<span class="tag color">Color</span>' : ''}
+      ${isNew ? `<span class="tag new">NEW</span>` : ''}
+      ${c.chapter ? `<span class="strip">${esc(c.chapter.replace(/^Chapter\s+/i, ''))}</span>` : ''}
     </a>
     <button class="fav" data-fav="${esc(slug)}" data-title="${esc(c.title)}" data-cover="${esc(c.cover || '')}"
-      aria-pressed="${fav}" aria-label="${fav ? 'Hapus dari favorit' : 'Tambah ke favorit'}">${favIcn(fav)}</button>
+      aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favorites'}">${favIcn(fav)}</button>
     <h3><a href="${href}">${esc(c.title)}</a></h3>
     ${meta ? `<p class="meta">${meta}</p>` : ''}
   </article>`;
 }
 const gridOf = (items, cls = 'grid') => items.length
   ? `<div class="${cls}">${items.map(c => card(c, S_GRID)).join('')}</div>`
-  : empty('Kosong', 'Tidak ada komik ditemukan.');
+  : empty('Empty', 'No comics found.');
 const railOf = items => `<div class="rail">${items.map(c => card(c, S_RAIL)).join('')}</div>`;
 
 function pager(page, hasNext, hrefFor, totalPages) {
   const cur = Number(page) || 1;
-  return `<nav class="pager" aria-label="Halaman">
-    ${cur > 1 ? `<a class="btn sm" href="${hrefFor(cur - 1)}" rel="prev">${icon('chevL')} Sebelumnya</a>`
-              : `<span class="btn sm" aria-disabled="true">${icon('chevL')} Sebelumnya</span>`}
-    <span class="info mono">${totalPages ? `${cur} / ${totalPages}` : `Hal. ${cur}`}</span>
-    ${hasNext ? `<a class="btn sm" href="${hrefFor(cur + 1)}" rel="next">Berikutnya ${icon('chevR')}</a>`
-              : `<span class="btn sm" aria-disabled="true">Berikutnya ${icon('chevR')}</span>`}
+  return `<nav class="pager" aria-label="Page navigation">
+    ${cur > 1 ? `<a class="btn sm" href="${hrefFor(cur - 1)}" rel="prev">${icon('chevL')} Prev</a>`
+              : `<span class="btn sm" aria-disabled="true">${icon('chevL')} Prev</span>`}
+    <span class="info mono">${totalPages ? `${cur} / ${totalPages}` : `Pp. ${cur}`}</span>
+    ${hasNext ? `<a class="btn sm" href="${hrefFor(cur + 1)}" rel="next">Next ${icon('chevR')}</a>`
+              : `<span class="btn sm" aria-disabled="true">Next ${icon('chevR')}</span>`}
     ${totalPages > 1 ? `<form data-jump="${esc(hrefFor('__P__'))}">
-      <input class="mono" type="number" min="1" max="${totalPages}" placeholder="Hal." aria-label="Lompat ke halaman">
+      <input class="mono" type="number" min="1" max="${totalPages}" placeholder="Pp." aria-label="Jump to page">
       <button class="btn sm" type="submit">Go</button></form>` : ''}
   </nav>`;
 }
@@ -819,10 +917,10 @@ function resumeCard(e) {
     <span class="rcover"><span class="ph">${initials(e.title)}</span>${e.cover ? coverImg(e.cover, 200, S_RESUME) : ''}</span>
     <span class="rinfo">
       <strong class="rtitle">${esc(e.title)}</strong>
-      <span class="rcap">Chapter ${esc(e.ch)}${e.total ? `${DOT}dari ${esc(e.total)}` : ''}</span>
+      <span class="rcap">Chapter ${esc(e.ch)}${e.total ? `${DOT}of ${esc(e.total)}` : ''}</span>
       ${pct >= 0 ? `<span class="rprog"><span class="rtrack"><span aria-hidden="true" style="width:${pct}%"></span></span><span class="rpct mono">${pct}%</span></span>
-        <span class="rrow"><span class="rwhen">Terakhir dibaca${DOT}${esc(timeAgo(e.at))}</span><span class="rgo">Lanjut ${icon('play')}</span></span>`
-        : `<span class="rrow"><span class="rwhen">Terakhir dibaca${DOT}Chapter ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span><span class="rgo">Lanjut ${icon('play')}</span></span>`}
+        <span class="rrow"><span class="rwhen">Last read${DOT}${esc(timeAgo(e.at))}</span><span class="rgo">Continue ${icon('play')}</span></span>`
+        : `<span class="rrow"><span class="rwhen">Last read${DOT}Chapter ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span><span class="rgo">Continue ${icon('play')}</span></span>`}
     </span>
   </a>`;
 }
@@ -834,27 +932,93 @@ function resumeRow(e) {
   </a>`;
 }
 
+/* ============================================================
+   BILLBOARD — slide dari /api/billboard (cover landscape asli
+   upstream, bukan cover portrait hasil resolve). Tanpa tombol/
+   indikator: navigasi cukup swipe, plus autoplay ringan.
+   ============================================================ */
+const bbSkel = () => `<div class="bb-track"><div class="bb-slide">
+  <div class="skel" style="position:absolute;inset:0"></div></div></div>`;
+function bbSlide(c, i, n) {
+  return `<a class="bb-slide" href="${detailHref(c.slug)}" role="group" aria-roledescription="slide"
+    aria-label="${esc(c.title)}, ${i + 1} of ${n}">
+    <span class="bb-bg" aria-hidden="true"><img src="${opt(c.cover, 800)}" alt="" decoding="async"
+      ${i ? 'loading="lazy"' : 'loading="eager"'} onerror="this.remove()"></span>
+    <span class="bb-fade" aria-hidden="true"></span>
+    <span class="bb-txt">
+      <strong class="bb-title">${esc(c.title)}</strong>
+      <span class="bb-meta">${joinDot([c.chapter, c.type, c.readers])}</span>
+    </span></a>`;
+}
+
+const REDUCED = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* Kawal carousel: posisi aktif dilacak IntersectionObserver (untuk autoplay),
+   tanpa listener scroll dan tanpa UI indikator. */
+let bbTimer = null;
+function initBillboard() {
+  const sec = $('.bb', view);
+  const track = $('#bbTrack');
+  if (!sec || !track) return;
+  const slides = $$('.bb-slide', track);
+  if (!slides.length) { sec.remove(); return; }
+  let idx = 0, idleAt = 0;
+  const pad = () => Math.max(0, (track.clientWidth - slides[0].clientWidth) / 2);
+  const go = i => {
+    idleAt = Date.now();
+    idx = (i + slides.length) % slides.length;
+    track.scrollTo({ left: slides[idx].offsetLeft - pad(), behavior: REDUCED() ? 'auto' : 'smooth' });
+  };
+  const io = new IntersectionObserver(es => {
+    es.forEach(en => { if (en.isIntersecting) idx = slides.indexOf(en.target); });
+  }, { root: track, threshold: .6 });
+  slides.forEach(s => io.observe(s));
+  if (REDUCED()) return; // tanpa autoplay saat user minta gerak minimal
+  bbTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (Date.now() - idleAt < 12000) return;           // baru berinteraksi
+    if (track.matches(':hover')) return;               // kursor di area carousel
+    if (track.contains(document.activeElement)) return; // fokus keyboard
+    go(idx + 1);
+  }, 6000);
+}
+function stopBillboard() {
+  if (bbTimer) { clearInterval(bbTimer); bbTimer = null; }
+}
+
 async function pageHome() {
-  view.innerHTML = block('Terbaru', skelRail(6), `<a class="more" href="#/katalog/1">Lihat semua ${icon('chevR')}</a>`);
+  view.innerHTML = `<section class="bb" aria-roledescription="carousel" aria-label="Featured comics">${bbSkel()}</section>` +
+    block('Latest', skelGrid(6), `<a class="more" href="#/katalog/1">View all ${icon('chevR')}</a>`);
   try {
-    const [latest, popular, recommended] = await Promise.all([
+    const [billboard, latest, popular, recommended] = await Promise.all([
+      api('/api/billboard').catch(() => []),
       api('/api/latest'),
       api('/api/popular').catch(() => []),
       api('/api/recommended').catch(() => []),
     ]);
     let html = '';
 
-    html += block('Terbaru', railOf(latest.slice(0, 16)),
-      `<a class="more" href="#/katalog/1">Lihat semua ${icon('chevR')}</a>`);
+    // 1) Billboard hero — cover landscape asli, tanpa panah/angka.
+    html += billboard.length ? `<section class="bb" aria-roledescription="carousel" aria-label="Featured comics">
+      <div class="bb-track" id="bbTrack">${billboard.map((c, i) => bbSlide(c, i, billboard.length)).join('')}</div></section>` : '';
 
+    // 2) Continue Reading — prioritaskan "what to read next" (sec 6)
     const hist = history().slice(0, 3);
     if (hist.length) {
       const [first, ...rest] = hist;
-      html += block('Lanjutkan membaca',
-        `<div class="cont">${resumeCard(first)}${rest.map(resumeRow).join('')}</div>`,
-        `<a class="more" href="#/riwayat">Lihat semua ${icon('chevR')}</a>`);
+      html += `<section class="block"><div class="block-head"><h2>Continue Reading</h2><a class="more" href="#/koleksi?tab=riwayat">View all ${icon('chevR')}</a></div>
+        <div class="cont">${resumeCard(first)}${rest.map(resumeRow).join('')}</div></section>`;
+    } else {
+      html += `<section class="block">${empty('Start reading', 'Comics you read will appear here.')}</section>`;
     }
 
+    // 3) Recently Updated — dense 6-col grid (sec 7 + 15)
+    // Mark first 2 as NEW to match blueprint visual without inventing data
+    const terbaruItems = latest.slice(0, 12).map((c,i)=> ({...c, _isNew: i<2}));
+    html += block('Recently Updated', gridOf(terbaruItems),
+      `<a class="more" href="#/katalog/1">View all ${icon('chevR')}</a>`);
+
+    // 4) Popular This Week (tab per tipe)
     if (popular.length) {
       const tabs = popular.map((g, i) =>
         `<button role="tab" id="pop-t${i}" aria-controls="pop-p${i}" aria-selected="${i === 0}" data-pop="${i}">${esc(g.title.replace(/\s*Populer$/i, ''))}</button>`).join('');
@@ -865,15 +1029,17 @@ async function pageHome() {
           <span class="txt"><h3>${esc(c.title)}</h3>
             <span class="meta">${joinDot([c.chapter, c.readers || c.genre])}</span></span>
         </a>`).join('')}</div></div>`).join('');
-      html += block('Populer Minggu Ini', `<div class="seg" role="tablist" aria-label="Tipe komik populer">${tabs}</div>${panels}`,
-        `<a class="more" href="#/populer">Lihat semua ${icon('chevR')}</a>`, 'tabs');
+      html += block('Popular This Week', `<div class="seg" role="tablist" aria-label="Popular comic types">${tabs}</div>${panels}`,
+        `<a class="more" href="#/populer">View all ${icon('chevR')}</a>`, 'tabs');
     }
 
+    // 5) Rekomendasi
     if (recommended.length) {
-      html += block('Rekomendasi Untukmu', gridOf(recommended.slice(0, 10), 'grid wide'));
+      html += block('Recommended For You', gridOf(recommended.slice(0, 10), 'grid wide'));
     }
 
     view.innerHTML = html;
+    initBillboard();
 
     // Tab populer: klik + navigasi panah (pola tablist WAI-ARIA).
     const seg = $('.seg', view);
@@ -904,14 +1070,14 @@ async function pageHome() {
   } catch (e) { fail(e); }
 }
 
-/* Halaman "Lihat semua" dari blok Populer: semua komik per tipe secara penuh. */
+/* "View all" page from Popular block: all comics by type, full listing. */
 async function pagePopuler() {
-  view.innerHTML = head('Populer', 'Semua komik populer') + skelGrid(8);
+  view.innerHTML = head('Popular', 'Popular comics') + skelGrid(8);
   try {
     const groups = await api('/api/popular');
     let html = '';
     const total = groups.reduce((n, g) => n + g.items.length, 0);
-    html += head('Populer', 'Semua komik populer', `${total} judul terpopuler minggu ini`);
+    html += head('Popular', 'Popular comics', `${total} most popular titles this week`);
     html += groups.map(g => block(g.title.replace(/\s*Populer$/i, ''), gridOf(g.items))).join('');
     view.innerHTML = html;
   } catch (e) { fail(e); }
@@ -920,7 +1086,7 @@ async function pagePopuler() {
 /* ============================================================
    CATALOG / SEARCH / GENRE / COLORED
    ============================================================ */
-const TYPES = [['', 'Semua'], ['manga', 'Manga'], ['manhwa', 'Manhwa'], ['manhua', 'Manhua']];
+const TYPES = [['', 'Comics'], ['manga', 'Manga'], ['manhwa', 'Manhwa'], ['manhua', 'Manhua']];
 const LETTERS = ['', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 
 async function pageCatalog(page, params) {
@@ -941,15 +1107,15 @@ async function pageCatalog(page, params) {
     return `#/katalog/1${s ? '?' + s : ''}`;
   };
   const filters = `<div class="filters">
-    <div class="frow" role="group" aria-label="Filter tipe">
+    <div class="frow" role="group" aria-label="Type filter">
       ${TYPES.map(([v, l]) => `<a href="${filterHref(v, letter)}" aria-current="${v === type}">${l}</a>`).join('')}
     </div>
-    <div class="frow az" role="group" aria-label="Filter huruf awal">
+    <div class="frow az" role="group" aria-label="Letter filter">
       ${LETTERS.map(L => `<a href="${filterHref(type, L)}" aria-current="${L === letter}">${L || 'A–Z'}</a>`).join('')}
     </div>
   </div>`;
-  const title = TYPES.find(([v]) => v === type)?.[1] || 'Semua';
-  const h = head('Katalog', title === 'Semua' ? 'Semua komik' : title);
+  const title = TYPES.find(([v]) => v === type)?.[1] || 'Comics';
+  const h = head('Catalog', title === 'Comics' ? 'Comics' : title);
   view.innerHTML = h + filters + skelGrid(10);
   try {
     const qs = new URLSearchParams({ page });
@@ -957,32 +1123,33 @@ async function pageCatalog(page, params) {
     if (letter) qs.set('letter', letter);
     const d = await api('/api/catalog?' + qs);
     const sub = joinDot([
-      d.total ? d.total.toLocaleString('id-ID') + ' judul' : '',
-      d.total_pages ? d.total_pages + ' halaman' : '',
-      letter ? 'Huruf ' + letter : '',
+      d.total ? d.total.toLocaleString() + ' titles' : '',
+      d.total_pages ? d.total_pages + ' pages' : '',
+      letter ? 'Letter ' + letter : '',
     ]);
-    view.innerHTML = head('Katalog', title === 'Semua' ? 'Semua komik' : title, sub) + filters +
+    view.innerHTML = head('Catalog', title === 'Comics' ? 'Comics' : title, sub) + filters +
       gridOf(d.items) + pager(d.page, d.has_next, href, d.total_pages);
   } catch (e) { fail(e); }
 }
 
 async function pageSearch(query, page) {
   $$('[data-search] input').forEach(i => { i.value = query; });
-  const h = head('Pencarian', query);
+  const h = head('Search', `Results for "${query}"`, 'Type a manga, manhwa, manhua title to search');
   view.innerHTML = h + skelGrid(6);
   try {
     const d = await api(`/api/search?q=${encodeURIComponent(query)}&page=${page}`);
-    view.innerHTML = head('Pencarian', query, `${d.items.length} hasil di halaman ${d.page}`) +
-      (d.items.length ? gridOf(d.items) : empty('Tidak ditemukan', `Tidak ada judul cocok dengan "${query}".`)) +
+    const countSub = `${d.items.length} results on page ${d.page}`;
+    view.innerHTML = head('Search', `Results for "${query}"`, countSub) +
+      (d.items.length ? gridOf(d.items) : empty('Not found', `No titles match "${query}". Try a different keyword or change the filter.`)) +
       (d.items.length ? pager(d.page, d.has_next, p => `#/cari/${encodeURIComponent(query)}/${p}`) : '');
   } catch (e) { fail(e); }
 }
 
 async function pageGenres() {
-  view.innerHTML = head('Jelajah', 'Genre') + skelGrid(4);
+  view.innerHTML = head('Explore', 'Genre') + skelGrid(4);
   try {
     const list = await api('/api/genres');
-    view.innerHTML = head('Jelajah', 'Genre', `${list.length} kategori`) +
+    view.innerHTML = head('Explore', 'Genre', `${list.length} categories`) +
       `<div class="glist">${list.map(g =>
         `<a href="#/genre/${encodeURIComponent(g.slug)}/1">${esc(g.name)}</a>`).join('')}</div>`;
   } catch (e) { fail(e); }
@@ -998,37 +1165,42 @@ async function pageGenre(slug, page) {
   } catch (e) { fail(e); }
 }
 
-async function pageColored() {
-  view.innerHTML = head('Pilihan', 'Komik berwarna') + skelGrid(6);
-  try {
-    const items = await api('/api/colored');
-    view.innerHTML = head('Pilihan', 'Komik berwarna', `${items.length} judul full color`) + gridOf(items);
-  } catch (e) { fail(e); }
-}
+/* Unified collection ("My Series" pattern): two tabs in one page.
+   Old routes #/favorit & #/riwayat still render via forceTab so
+   old bookmarks don't break. */
+function pageKoleksi(params, forceTab) {
+  const tab = forceTab || (params && params.get('tab') === 'riwayat' ? 'riwayat' : 'favorit');
+  const tabs = `<nav class="seg" aria-label="Collection tabs">
+    <a href="#/koleksi" ${tab === 'favorit' ? 'aria-current="true"' : ''}>Favorites</a>
+    <a href="#/koleksi?tab=riwayat" ${tab === 'riwayat' ? 'aria-current="true"' : ''}>History</a>
+  </nav>`;
 
-function pageFavs() {
-  const items = Object.values(favs()).sort((a, b) => b.at - a.at);
-  view.innerHTML = head('Koleksi', 'Favorit', items.length ? `${items.length} judul tersimpan di perangkat ini` : '') +
-    (items.length ? gridOf(items) : empty('Belum ada favorit', 'Komik yang kamu tandai kesukaan akan muncul di sini.'));
-}
+  if (tab === 'favorit') {
+    const items = Object.values(favs()).sort((a, b) => b.at - a.at);
+    view.innerHTML =
+      head('Collection', 'Favorites', items.length ? `${items.length} titles saved on this device` : '') + tabs +
+      (items.length ? gridOf(items)
+        : empty('No favorites yet', 'Comics you bookmark will appear here.'));
+    return;
+  }
 
-function pageHistory() {
   const h = history();
-  view.innerHTML = head('Koleksi', 'Riwayat baca', h.length ? `${h.length} judul` : '') +
-    (h.length ? `<div class="list-tools"><span class="label">Terakhir dibaca</span>
-        <button class="btn sm" id="clearHist">Hapus semua</button></div>
+  view.innerHTML =
+    head('Collection', 'Reading history', h.length ? `${h.length} titles` : '') + tabs +
+    (h.length ? `<div class="list-tools"><span class="label">Last read</span>
+        <button class="btn sm" id="clearHist">Clear all</button></div>
       <div class="hist">${h.map(e => `<a href="${readHref(e.slug, e.ch)}">
         <span class="t">${esc(e.title)}</span>
         <span class="c">Ch. ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span></a>`).join('')}</div>`
-      : empty('Belum ada riwayat', 'Chapter yang kamu baca akan muncul di sini.'));
+      : empty('No history yet', 'Chapters you read will appear here.'));
   const btn = $('#clearHist');
-  if (btn) btn.onclick = () => { store.set('zomic:history', []); pageHistory(); };
+  if (btn) btn.onclick = () => { store.set('zomic:history', []); pageKoleksi(null, 'riwayat'); };
 }
 
 /* ============================================================
    DETAIL
    ============================================================ */
-const FACTS = [['status', 'Status'], ['type', 'Tipe'], ['author', 'Author'], ['rating', 'Rating']];
+const FACTS = [['status', 'Status'], ['type', 'Type'], ['author', 'Author'], ['rating', 'Rating']];
 
 async function pageDetail(slug) {
   view.innerHTML = `<div class="dhead" aria-hidden="true"><div class="skel skel-cover"></div>
@@ -1039,7 +1211,7 @@ async function pageDetail(slug) {
     const chapters = (d.chapters || []).filter(c => c.ch);
     const read = readSet(slug);
     const genres = (Array.isArray(d.genre) ? d.genre : String(d.genre || '').split(/\s{2,}|,/)).filter(Boolean);
-    const first = chapters[0], last = chapters[chapters.length - 1];
+    const first = chapters[0];
     let resume = first;
     for (let i = chapters.length - 1; i >= 0; i--) {
       if (read.has(String(chapters[i].ch))) { resume = chapters[i + 1] || chapters[i]; break; }
@@ -1047,73 +1219,90 @@ async function pageDetail(slug) {
     const resumed = resume && resume !== first;
     const facts = FACTS.filter(([k]) => d[k]).map(([k, l]) => [l, d[k]]);
     if (chapters.length) facts.push(['Chapter', String(d.total_chapters || chapters.length)]);
-    if (d.info?.['Cara Baca']) facts.push(['Cara baca', d.info['Cara Baca']]);
+    if (d.info?.['Cara Baca']) facts.push(['How to read', d.info['Cara Baca']]);
     const fav = isFav(slug);
 
+    const typeVal = d.type || '';
+    const statusVal = d.status || '';
+    const ratingVal = d.rating || '';
+    const breadcrumb = `<nav class="crumb" aria-label="Breadcrumb">
+      <a href="#/">Home</a><span>/</span>
+      ${typeVal ? `<a href="#/katalog/1?type=${esc(typeVal.toLowerCase())}">${esc(typeVal)}</a><span>/</span>` : ''}
+      ${genres[0] ? `<a href="#/genre/${encodeURIComponent(genres[0].toLowerCase().replace(/\s+/g,'-'))}/1">${esc(genres[0])}</a><span>/</span>` : ''}
+      <span aria-current="page">${esc(d.title)}</span></nav>`;
+    const ratingLine = [ratingVal ? `★ ${esc(ratingVal)}` : '', statusVal ? `● ${esc(statusVal)}` : '', typeVal ? `[${esc(typeVal)}]` : ''].filter(Boolean).join(` ${DOT} `);
     view.innerHTML = `
-      <button class="back" data-back>${svg('arrowL')} Kembali</button>
-      <div class="dhead">
-        <div class="cover"><span class="ph">${initials(d.title)}</span>${d.cover ? coverImg(d.cover, 480, S_DETAIL, true) : ''}</div>
-        <div class="txt">
-          <h1>${esc(d.title)}</h1>
-          ${d.alt_title ? `<p class="alt">${esc(d.alt_title)}</p>` : ''}
-          ${genres.length ? `<p class="genres">${genres.map(g =>
-            `<a href="#/genre/${encodeURIComponent(g.toLowerCase().replace(/\s+/g, '-'))}/1">${esc(g)}</a>`)
-            .join('<span class="dot">·</span>')}</p>` : ''}
+      ${breadcrumb}
+      <button class="back" data-back>${svg('arrowL')} Back</button>
+      <div class="dwrap">
+        <div>
+          <div class="dhead">
+            <div class="cover"><span class="ph">${initials(d.title)}</span>${d.cover ? coverImg(d.cover, 480, S_DETAIL, true) : ''}</div>
+            <div class="txt">
+              <h1>${esc(d.title)}</h1>
+              ${d.alt_title ? `<p class="alt">${esc(d.alt_title)}</p>` : ''}
+              ${ratingLine ? `<p class="dmeta">${ratingLine}</p>` : ''}
+              ${genres.length ? `<p class="genres">${genres.map(g =>
+                `<a href="#/genre/${encodeURIComponent(g.toLowerCase().replace(/\s+/g, '-'))}/1">${esc(g)}</a>`).join('')}` : ''}
+            </div>
+          </div>
+
+          <div class="actions">
+            ${resume ? `<a class="btn primary" href="${readHref(slug, resume.ch)}">
+              ${resumed ? `Continue ch. ${esc(resume.ch)}` : 'Start reading'}</a>` : ''}
+            <button class="btn icon" data-fav="${esc(slug)}" data-title="${esc(d.title)}" data-cover="${esc(d.cover || '')}"
+aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favorites'}">${favIcn(fav)}</button>
+          </div>
+
+          ${facts.length ? `<dl class="facts">${facts.map(([k, v]) =>
+            `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}
+
+          ${d.sinopsis && d.sinopsis !== '-' ? block('Synopsis',
+            `<p class="syn clamped" id="syn">${esc(d.sinopsis)}</p>
+             <button class="syn-toggle" id="synBtn" aria-controls="syn" aria-expanded="false" hidden>Read more ${icon('chevR')}</button>`) : ''}
+        </div>
+
+        <div>
+          ${chapters.length ? block('Chapter', `<div class="list-tools">
+              <span class="label">${chapters.length} chapter${read.size ? ` · ${read.size} read` : ''}</span>
+              <button class="btn sm" id="sortCh">Latest first ${icon('chevR')}</button>
+            </div><div class="chapters" id="chList"></div>`) : empty('No chapters yet')}
         </div>
       </div>
 
-      ${facts.length ? `<dl class="facts">${facts.map(([k, v]) =>
-        `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}
-
-      <div class="actions">
-        ${resume ? `<a class="btn primary" href="${readHref(slug, resume.ch)}">
-          ${resumed ? `Lanjut ch. ${esc(resume.ch)}` : 'Mulai baca'}</a>` : ''}
-        ${last && last !== resume ? `<a class="btn" href="${readHref(slug, last.ch)}">Terbaru</a>` : ''}
-        <button class="btn icon" data-fav="${esc(slug)}" data-title="${esc(d.title)}" data-cover="${esc(d.cover || '')}"
-aria-pressed="${fav}" aria-label="${fav ? 'Hapus dari favorit' : 'Tambah ke favorit'}">${favIcn(fav)}</button>
-      </div>
-
-      ${d.sinopsis && d.sinopsis !== '-' ? block('Sinopsis',
-        `<p class="syn clamped" id="syn">${esc(d.sinopsis)}</p>
-         <button class="syn-toggle" id="synBtn" aria-controls="syn" aria-expanded="false" hidden>Baca selengkapnya</button>`) : ''}
-
-      ${chapters.length ? block('Chapter', `<div class="list-tools">
-          <span class="label">${chapters.length} chapter${read.size ? ` · ${read.size} dibaca` : ''}</span>
-          <button class="btn sm" id="sortCh">Terbaru dulu</button>
-        </div><div class="chapters" id="chList"></div>`) : empty('Belum ada chapter')}
-
-      ${d.similar?.length ? block('Serupa', railOf(d.similar)) : ''}
+      ${d.similar?.length ? block('You may also like', railOf(d.similar)) : ''}
     `;
 
     let desc = true; // terbaru dulu
     const chEl = $('#chList');
     const render = () => {
       const list = desc ? [...chapters].reverse() : chapters;
-      chEl.innerHTML = list.map(c => {
+      chEl.innerHTML = list.map((c, idx) => {
         const done = read.has(String(c.ch));
+        const isNew = idx < 2 && desc;
         return `<a class="${done ? 'read' : ''}" href="${readHref(slug, c.ch)}">
         <span class="ch">${esc(c.title || 'Chapter ' + c.ch)}</span>
-        ${done ? '<span class="label">Dibaca</span>' : ''}
-        <span class="when mono">${esc(c.date || '')}</span></a>`;
+        ${isNew ? '<span class="badge-new">NEW</span>' : ''}
+        ${done ? '<span class="label">Read</span>' : ''}
+        <span class="when mono">${esc(c.date || '')}</span><span aria-hidden="true" style="color:var(--muted)">→</span></a>`;
       }).join('');
     };
     if (chEl) {
       render();
       $('#sortCh').onclick = e => {
         desc = !desc;
-        e.currentTarget.textContent = desc ? 'Terbaru dulu' : 'Terlama dulu';
+        e.currentTarget.innerHTML = (desc ? 'Latest first ' : 'Oldest first ') + icon('chevR');
         render();
       };
     }
     const syn = $('#syn'), synBtn = $('#synBtn');
     if (syn && synBtn) {
-      // Tombol hanya berguna kalau teks benar-benar terpotong.
+      // Button is only useful if text is actually truncated.
       if (syn.scrollHeight - syn.clientHeight > 4) synBtn.hidden = false;
       else syn.classList.remove('clamped');
       synBtn.onclick = () => {
         const clamped = syn.classList.toggle('clamped');
-        synBtn.textContent = clamped ? 'Baca selengkapnya' : 'Tutup';
+        synBtn.textContent = clamped ? 'Read more' : 'Close';
         synBtn.setAttribute('aria-expanded', String(!clamped));
       };
     }
@@ -1127,7 +1316,7 @@ let readerNav = null;
 
 async function pageReader(slug, ch) {
   document.body.dataset.view = 'reader';
-  view.innerHTML = `<div class="state"><p class="label">Memuat chapter ${esc(ch)}</p></div>`;
+  view.innerHTML = `<div class="state"><p class="label">Loading chapter ${esc(ch)}</p></div>`;
   try {
     const [imgs, detail] = await Promise.all([
       api(`/api/chapter/${encodeURIComponent(slug)}/${encodeURIComponent(ch)}`),
@@ -1144,27 +1333,27 @@ async function pageReader(slug, ch) {
 
     const back = detailHref(slug);
     const fnav = (c, dir) => c
-      ? `<a class="pill" href="${readHref(slug, c.ch)}" aria-label="${dir < 0 ? 'Chapter sebelumnya' : 'Chapter berikutnya'}">${svg(dir < 0 ? 'chevL' : 'chevR')}</a>`
+      ? `<a class="pill" href="${readHref(slug, c.ch)}" aria-label="${dir < 0 ? 'Previous chapter' : 'Next chapter'}">${svg(dir < 0 ? 'chevL' : 'chevR')}</a>`
       : `<span class="pill" aria-disabled="true">${svg(dir < 0 ? 'chevL' : 'chevR')}</span>`;
 
     view.innerHTML = `
       <div class="rbar top">
         <div class="inner">
-          <a class="icon-btn" href="${back}" aria-label="Kembali ke detail komik">${svg('arrowL')}</a>
+          <a class="icon-btn" href="${back}" aria-label="Back to comic detail">${svg('arrowL')}</a>
           <span class="rmeta"><strong>${esc(title)}</strong><span>Chapter ${esc(ch)}</span></span>
-          <button class="icon-btn" id="sheetBtn" aria-label="Daftar chapter" aria-expanded="false" aria-controls="sheet">${svg('list')}</button>
+          <button class="icon-btn" id="sheetBtn" aria-label="Chapter list" aria-expanded="false" aria-controls="sheet">${svg('list')}</button>
         </div>
         <div class="progress" id="prog"></div>
       </div>
 
       <div class="pages" id="pages">${pages.map((u, n) =>
-        `<img src="${IMG(u)}" alt="Halaman ${n + 1}" ${n < 2 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
+        `<img src="${IMG(u)}" alt="Page ${n + 1}" ${n < 2 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
           onload="this.classList.add('done')"
-          onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Halaman ${n + 1} gagal dimuat'}))">`).join('')}
+          onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Page ${n + 1} failed to load'}))">`).join('')}
       </div>
 
       <div class="rend">
-        <p class="label">Chapter ${esc(ch)} selesai</p>
+        <p class="label">Chapter ${esc(ch)} finished</p>
         <div class="actions">
           ${fnav(prev, -1)}
           <a class="btn" href="${back}">Detail</a>
@@ -1178,9 +1367,9 @@ async function pageReader(slug, ch) {
         ${fnav(next, 1)}
       </div>
       <div class="scrim" id="scrim"></div>
-      <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Daftar chapter" aria-hidden="true" inert>
+      <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Chapter list" aria-hidden="true" inert>
         <div class="shead"><span class="label">${chapters.length} chapter</span>
-          <button class="icon-btn" id="sheetClose" aria-label="Tutup daftar chapter">${svg('x')}</button></div>
+          <button class="icon-btn" id="sheetClose" aria-label="Close chapter list">${svg('x')}</button></div>
         <div class="slist">${[...chapters].reverse().map(c =>
           `<a href="${readHref(slug, c.ch)}" aria-current="${String(c.ch) === String(ch)}">
             <span>${esc(c.title || 'Chapter ' + c.ch)}</span>
@@ -1328,25 +1517,29 @@ window.addEventListener('scroll', () => {
    NAVIGATION + ROUTER
    ============================================================ */
 const NAV = [
-  { href: '#/', key: '', label: 'Beranda', icon: 'home' },
-  { href: '#/katalog/1', key: 'katalog', label: 'Jelajah', icon: 'grid' },
-  { href: '#/genre', key: 'genre', label: 'Genre', icon: 'tags' },
-  { href: '#/favorit', key: 'favorit', label: 'Favorit', icon: 'star' },
-  { href: '#/riwayat', key: 'riwayat', label: 'Riwayat', icon: 'clock' },
+  { href: '#/', key: '', label: 'Home', icon: 'home' },
+  { href: '#/katalog/1', key: 'katalog', label: 'Explore', icon: 'grid' },
+  { href: '#/populer', key: 'populer', label: 'Popular', icon: 'flame' },
+  { href: '#/koleksi', key: 'koleksi', label: 'Collection', icon: 'bookmark' },
 ];
 const DESKNAV = [...NAV];
 
+/* Rute lama & sub-tab koleksi tetap menyalakan lampu "Koleksi" di nav. */
+const NAV_ALIAS = { favorit: 'koleksi', riwayat: 'koleksi', koleksi: 'koleksi' };
+
 function renderNav(active) {
+  const key = NAV_ALIAS[active] || active;
   $('#botnav').innerHTML = NAV.map(n =>
-    `<a href="${n.href}" ${n.key === active ? 'aria-current="page"' : ''}>${svg(n.icon)}<span>${n.label}</span></a>`).join('');
+    `<a href="${n.href}" ${n.key === key ? 'aria-current="page"' : ''}>${svg(n.icon)}<span>${n.label}</span></a>`).join('');
   $('#desknav').innerHTML = DESKNAV.map(n =>
-    `<a href="${n.href}" ${n.key === active ? 'aria-current="page"' : ''}>${n.label}</a>`).join('');
+    `<a href="${n.href}" ${n.key === key ? 'aria-current="page"' : ''}>${n.label}</a>`).join('');
 }
 
 function route() {
   readerNav = null;
   closeSheet = null;
   stopAutoscroll();
+  stopBillboard();
   clearTimeout(chromeTimer);
   document.body.classList.remove('chrome');
   document.body.dataset.view = '';
@@ -1367,9 +1560,9 @@ function route() {
     case 'katalog': return pageCatalog(Number(seg[1]) || 1, params);
     case 'cari': return seg[1] ? pageSearch(seg[1], Number(seg[2]) || 1) : pageHome();
     case 'genre': return seg[1] ? pageGenre(seg[1], Number(seg[2]) || 1) : pageGenres();
-    case 'berwarna': return pageColored();
-    case 'favorit': return pageFavs();
-    case 'riwayat': return pageHistory();
+    case 'koleksi': return pageKoleksi(params);
+    case 'favorit': return pageKoleksi(params, 'favorit');
+    case 'riwayat': return pageKoleksi(params, 'riwayat');
     case 'komik': return pageDetail(seg[1]);
     case 'baca': return pageReader(seg[1], seg[2]);
     default: return pageHome();
@@ -1403,7 +1596,7 @@ document.addEventListener('click', e => {
     const on = toggleFav(fav.dataset.fav, { title: fav.dataset.title, cover: fav.dataset.cover });
     fav.innerHTML = favIcn(on);
     fav.setAttribute('aria-pressed', String(on));
-    fav.setAttribute('aria-label', on ? 'Hapus dari favorit' : 'Tambah ke favorit');
+    fav.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
     return;
   }
   if (t.closest('[data-retry]')) { route(); return; }
@@ -1430,20 +1623,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' && readerNav.prev) location.hash = readerNav.prev;
   if (e.key === 'Escape') location.hash = readerNav.back;
 });
-
-/* ============================================================
-   THEME
-   ============================================================ */
-const applyTheme = t => {
-  document.documentElement.dataset.theme = t;
-  $('#themeBtn').innerHTML = svg(t === 'light' ? 'sun' : 'moon');
-  $('meta[name="theme-color"]').setAttribute('content', t === 'light' ? '#f3f2ed' : '#0b0c0e');
-};
-applyTheme(store.get('zomic:theme', 'dark'));
-$('#themeBtn').onclick = () => {
-  const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-  store.set('zomic:theme', t); applyTheme(t);
-};
 
 route();
 </script>

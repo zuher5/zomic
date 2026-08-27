@@ -17,6 +17,7 @@ from urllib.parse import quote_plus
 import requests
 
 SITE = "https://komiku.org"
+KIRYUU_SITE = "https://v7.kiryuu.to"
 SEARCH_HOST = "https://api.komiku.org"
 PER_PAGE_CATALOG = 50
 PER_PAGE_SEARCH = 10
@@ -77,6 +78,7 @@ _PORTRAIT = re.compile(
     r'<img[^>]*itemprop="image"[^>]*src="([^"]+)"|<meta property="og:image" content="([^"]+)"',
     re.I,
 )
+_KIRYUU_OG = re.compile(r'<meta property="og:image" content="([^"]+)"', re.I)
 
 
 def _text(raw):
@@ -281,12 +283,43 @@ class KomikuWeb:
             return ''
         url = _abs_url(m.group(1) or m.group(2) or '')
         low = url.lower()
-        if not url or 'thumbnail' not in low:
+        if not url:
             return ''
-        # Status 200 bukan jaminan isinya portrait: og:image bisa saja banner
-        # landscape. Tolak marker landscape yang terbukti dari data upstream.
-        if any(marker in low for marker in
-               ('manga_img_horizontal', 'resize=240,150', 'resize=450,235')):
+        # Tolak banner landscape: manga_img_horizontal selalu landscape.
+        if 'manga_img_horizontal' in low:
+            return ''
+        # Host + path validation: host dikenal DAN path mengandung 'thumbnail'.
+        # Ini menangkap manga_thumbnail-*, img/upload/*, new/img/* sekaligus
+        # menolak banner-x.jpg yang tidak punya 'thumbnail' di path.
+        from urllib.parse import urlparse as _urlparse
+        host = (_urlparse(url).hostname or '').lower()
+        if not any(kw in host for kw in ('thumbnail.komiku', 'img.komiku')):
+            return ''
+        if 'thumbnail' not in low:
+            return ''
+        return url
+
+    def kiryuu_cover(self, slug):
+        """Cover portrait dari kiryuu.to sebagai fallback ketika komiku gagal.
+
+        Kiryuu pakai WordPress — cover ada di og:image (720×1030 portrait).
+        Slug dipetakan langsung (/manga/{slug}/) tanpa lookup terpisah;
+        kalau slug beda, 404 ditangkap dan dikembalikan sebagai ''.
+        """
+        slug = re.sub(r'[^a-z0-9\-]', '', (slug or '').lower())
+        if not slug:
+            return ''
+        try:
+            raw = self._fetch(f"{KIRYUU_SITE}/manga/{slug}/",
+                              timeout=6, attempts=1)
+        except requests.RequestException:
+            raise
+        m = _KIRYUU_OG.search(raw)
+        if not m:
+            return ''
+        url = _abs_url(m.group(1))
+        low = url.lower()
+        if not url or 'kiryuu' not in low:
             return ''
         return url
 

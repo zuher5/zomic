@@ -89,6 +89,8 @@ class ResolvePortraitTest(unittest.TestCase):
         with patch.object(app_module.api, 'portrait_cover_api',
                           side_effect=requests.ConnectionError('boom')), \
              patch.object(app_module.web, 'portrait_cover',
+                          side_effect=requests.ConnectionError('boom')), \
+             patch.object(app_module.web, 'kiryuu_cover',
                           side_effect=requests.ConnectionError('boom')):
             out = app_module.api._resolve_portrait([card('a', BANNER)])
         self.assertEqual(out[0]['cover'], BANNER)
@@ -195,6 +197,38 @@ class PortraitCoverValidationTest(unittest.TestCase):
         with patch.object(app_module.web, '_fetch', return_value=html):
             self.assertEqual(app_module.web.portrait_cover('some-slug'), '')
 
+    def test_api_and_scraper_failure_falls_back_to_kiryuu(self):
+        KIRYUU = 'https://v7.kiryuu.to/wp-content/uploads/2026/07/shadow-slave.png'
+        with patch.object(app_module.api, 'portrait_cover_api',
+                          side_effect=requests.ConnectionError('boom')), \
+             patch.object(app_module.web, 'portrait_cover',
+                          side_effect=requests.ConnectionError('boom')), \
+             patch.object(app_module.web, 'kiryuu_cover', return_value=KIRYUU) as m:
+            out = app_module.api._resolve_portrait([card('a', BANNER)])
+        m.assert_called_once_with('a')
+        self.assertEqual(out[0]['cover'], KIRYUU)
+
+
+class KiryuuCoverTest(unittest.TestCase):
+    KIRYUU_OG = ('<html><head><meta property="og:image" content='
+                 '"https://v7.kiryuu.to/wp-content/uploads/2026/07/shadow-slave.png">'
+                 '</head></html>')
+
+    def test_portrait_og_image_is_accepted(self):
+        with patch.object(app_module.web, '_fetch', return_value=self.KIRYUU_OG):
+            result = app_module.web.kiryuu_cover('shadow-slave')
+        self.assertIn('kiryuu.to', result)
+        self.assertIn('shadow-slave', result)
+
+    def test_non_kiryuu_host_is_rejected(self):
+        html = ('<html><head><meta property="og:image" content='
+                '"https://img.komiku.org/banner-x.jpg"></head></html>')
+        with patch.object(app_module.web, '_fetch', return_value=html):
+            self.assertEqual(app_module.web.kiryuu_cover('some-slug'), '')
+
+    def test_empty_slug_returns_empty(self):
+        self.assertEqual(app_module.web.kiryuu_cover(''), '')
+
 
 class ReaderAndFrontendContractTest(unittest.TestCase):
     def test_chapter_endpoint_returns_original_sources(self):
@@ -213,8 +247,9 @@ class ReaderAndFrontendContractTest(unittest.TestCase):
         self.assertIn('opt(u, 400)} 400w', html)
         self.assertIn('opt(u, 800)} 800w', html)
         self.assertIn('sizes=', html)
-        self.assertIn('function fitCover', html)
-        self.assertIn('object-fit:contain', html)
+        # Cover selalu dipotong ke portrait via object-fit:cover (CSS default),
+        # tanpa fallback contain untuk landscape.
+        self.assertNotIn('function fitCover', html)
         # Reader memakai source asli tanpa resize/format.
         self.assertIn('<img src="${IMG(u)}"', html)
 
