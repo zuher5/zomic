@@ -49,6 +49,7 @@ def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY
             time.sleep(base_delay * (2 ** i))
             continue
         return resp
+    return None
 
 
 _TAG = re.compile(r'<[^>]+>')
@@ -72,9 +73,17 @@ def _clean_slug(href):
     return m.group(1) if m else ''
 
 def _clean_chapter_num(ch_num):
-    """Bersihkan nomor chapter: '3862' dari data-chapter-number."""
-    ch_num = re.sub(r'[^0-9]', '', str(ch_num or ''))
-    return ch_num
+    """Bersihkan nomor chapter dari data-chapter-number.
+
+    WordPress Manga Stream memakai float sebagai penanda urutan rilis:
+    '3862.698726' artinya chapter 3862 yang rilis paling akhir. Bagian desimal
+    adalah artefak pengurutan, bukan nomor chapter — ambil bagian sebelum titik
+    supaya '3862.698726' jadi '3862', bukan '3862698726'.
+    """
+    ch_str = str(ch_num or '').strip()
+    if '.' in ch_str:
+        ch_str = ch_str.split('.')[0]
+    return re.sub(r'[^0-9]', '', ch_str)
 
 
 # --- Regex patterns untuk parsing ---
@@ -116,10 +125,29 @@ _TOTAL_PAGES = re.compile(
 )
 
 # Detail page patterns
-_JSONLD = re.compile(
-    r'<script type="application/ld\+json">\s*(\{[^<]*"@type"[^<]*\["?Book"?,\s*"?"ComicSeries"?\][^<]*\})\s*</script>',
-    re.S
-)
+def _find_series_jsonld(raw):
+    """Temukan JSON-LD seri manga (Book/ComicSeries) di halaman detail.
+
+    Daripada regex yang kaku pada urutan/@type tertentu, parse SEMUA blok
+    application/ld+json lalu pilih yang @type-nya memuat Book atau ComicSeries.
+    Header @type bisa array atau string tunggal; ketahanan ini membuatnya
+    tahan jika upstream merombak format JSON-LD.
+    """
+    for m in re.finditer(r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', raw, re.S):
+        try:
+            obj = json.loads(m.group(1).strip())
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if isinstance(obj, list):
+            obj = next((o for o in obj if isinstance(o, dict)), None)
+        if not isinstance(obj, dict):
+            continue
+        t = obj.get('@type', [])
+        if isinstance(t, str):
+            t = [t]
+        if any(k in ('Book', 'ComicSeries', 'ComicIssue', 'CreativeWork') for k in t) and (obj.get('name') or obj.get('headline')):
+            return obj
+    return None
 _GENRE_LINK = re.compile(
     r'itemprop="genre"\s+href="https://v7\.kiryuu\.to/genre/([a-z0-9\-]+)/"', re.I
 )
@@ -306,7 +334,7 @@ class KiryuuWeb:
 
         # Hitung total pages dari pagination
         pages_found = _PAGINATION.findall(raw)
-        max_page = max([int(p) for _, p in pages_found] + [page])
+        max_page = max([int(p) for p, _ in pages_found] + [page])
 
         return {
             'items': items,
@@ -330,7 +358,7 @@ class KiryuuWeb:
 
         # Cek pagination untuk search
         pages_found = _PAGINATION.findall(raw)
-        max_page = max([int(p) for _, p in pages_found] + [page])
+        max_page = max([int(p) for p, _ in pages_found] + [page])
 
         return {
             'items': items,
@@ -354,7 +382,7 @@ class KiryuuWeb:
         items = self._parse_listing(raw)
         items = self._dedupe(items)
         pages_found = _PAGINATION.findall(raw)
-        max_page = max([int(p) for _, p in pages_found] + [page])
+        max_page = max([int(p) for p, _ in pages_found] + [page])
         return {
             'items': items,
             'page': page,
@@ -406,14 +434,9 @@ class KiryuuWeb:
         raw = self._fetch(f"{SITE}/manga/{slug}/")
 
         # Extract JSON-LD (Book/ComicSeries)
-        ld_m = _JSONLD.search(raw)
-        if not ld_m:
+        ld = _find_series_jsonld(raw)
+        if not ld:
             raise ValueError(f"JSON-LD tidak ditemukan untuk {slug}")
-
-        try:
-            ld = json.loads(ld_m.group(1))
-        except json.JSONDecodeError:
-            raise ValueError(f"JSON-LD corrupt untuk {slug}")
 
         # Cover dari JSON-LD image
         cover = ''

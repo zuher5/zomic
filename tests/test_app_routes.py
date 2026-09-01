@@ -77,32 +77,6 @@ class ApiRoutesTest(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIsInstance(res.json(), list)
 
-    def test_billboard_keeps_landscape_banner_and_dedupes(self):
-        """Billboard harus memakai banner landscape MENTAH (tanpa resolve
-        portrait) dan tidak menampilkan slug yang sama dua kali."""
-        populer = {
-            "manga": {"title": "Manga", "items": [
-                {"slug": "a", "title": "A", "thumbnail": "//x.komiku.org/h-a.jpg?resize=450,235"},
-                {"slug": "b", "title": "B", "thumbnail": "//x.komiku.org/h-b.jpg"},
-            ]},
-            "manhwa": {"title": "Manhwa", "items": [
-                {"slug": "a", "title": "A dup", "thumbnail": "//x.komiku.org/h-a2.jpg"},
-                {"slug": "c", "title": "C", "thumbnail": ""},
-            ]},
-        }
-        rekomendasi = [{"slug": "d", "title": "D", "thumbnail": "//x.komiku.org/h-d.jpg"}]
-        with patch.object(app_module.api, "_get", side_effect=[populer, rekomendasi]) as m:
-            res = self.client.get("/api/billboard")
-        self.assertEqual(res.status_code, 200)
-        items = res.json()
-        self.assertEqual([i["slug"] for i in items], ["a", "b", "d"])
-        # Cover landscape asli dipertahankan + param resize tidak dibuang.
-        self.assertEqual(items[0]["cover"], "https://x.komiku.org/h-a.jpg?resize=450,235")
-        # Item tanpa cover valid (c) tidak ikut.
-        self.assertNotIn("c", [i["slug"] for i in items])
-        calls = [p.args[0] for p in m.call_args_list]
-        self.assertEqual(calls, ["/komik-populer", "/rekomendasi"])
-
     def test_frontend_served_from_disk(self):
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)

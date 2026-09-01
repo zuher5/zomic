@@ -11,50 +11,96 @@ echo -e "${YELLOW}  WORKFLOW VERIFIKASI & AUTO-FIX ${NC}"
 echo -e "${YELLOW}========================================${NC}"
 
 cd "$(dirname "$0")" || exit 1
+
+# --- Deteksi Termux / Android ---
+IS_ANDROID=0
+if [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]; then
+    IS_ANDROID=1
+fi
+
 VENV=".venv"
-PY="$VENV/bin/python"
+
+if [ "$IS_ANDROID" = "1" ]; then
+    # Di Termux /tmp read-only; pip butuh direktori tulis (pakai $PREFIX/tmp).
+    export TMPDIR="${TMPDIR:-$PREFIX/tmp}"
+    mkdir -p "$TMPDIR"
+    # Dependency native (pillow/lxml/pydantic-core) di-package khusus Android
+    # dan terpasang di site-packages sistem -> pakai python sistem, bukan venv.
+    PY="python3"
+else
+    PY="$VENV/bin/python"
+fi
 
 # STEP 0: Environment Check
-echo -e "\n${YELLOW}[STEP 0] Cek Python & Virtualenv...${NC}"
+echo -e "\n${YELLOW}[STEP 0] Cek Python...${NC}"
 if ! command -v python3 &> /dev/null; then
     echo -e "${FAIL} Python tidak ditemukan. ${FIX} Install...${NC}"
     pkg install python -y || sudo apt install -y python3
 fi
 echo -e "${PASS} Python sistem: $(python3 --version)"
 
-if [ ! -x "$PY" ]; then
-    echo -e "${WARN} Virtualenv belum ada. ${FIX} Membuat $VENV...${NC}"
-    python3 -m venv "$VENV" 2>/dev/null || python3 -m venv --without-pip "$VENV"
+if [ "$IS_ANDROID" = "0" ]; then
+    if [ ! -x "$PY" ]; then
+        echo -e "${WARN} Virtualenv belum ada. ${FIX} Membuat $VENV...${NC}"
+        python3 -m venv "$VENV" 2>/dev/null || python3 -m venv --without-pip "$VENV"
+    fi
+    if [ ! -x "$PY" ]; then
+        echo -e "${FAIL} Gagal membuat virtualenv. Install: sudo apt install python3-venv"
+        exit 1
+    fi
+    # Bootstrap pip bila venv dibuat tanpa pip (sistem tanpa ensurepip)
+    if ! "$PY" -m pip --version &> /dev/null; then
+        echo -e "${WARN} pip belum ada di venv. ${FIX} Bootstrap get-pip...${NC}"
+        curl -fsSL -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py \
+            && "$PY" /tmp/get-pip.py 2>&1 | tail -2
+    fi
+    echo -e "${PASS} Venv siap ($("$PY" --version))."
 fi
-if [ ! -x "$PY" ]; then
-    echo -e "${FAIL} Gagal membuat virtualenv. Install: sudo apt install python3-venv"
-    exit 1
-fi
-# Bootstrap pip bila venv dibuat tanpa pip (sistem tanpa ensurepip)
-if ! "$PY" -m pip --version &> /dev/null; then
-    echo -e "${WARN} pip belum ada di venv. ${FIX} Bootstrap get-pip...${NC}"
-    curl -fsSL -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py \
-        && "$PY" /tmp/get-pip.py 2>&1 | tail -2
-fi
-echo -e "${PASS} Venv siap ($("$PY" --version))."
 
-# STEP 1: Dependencies (app butuh requests + fastapi + uvicorn + Pillow)
+# STEP 1: Dependencies (app butuh fastapi + uvicorn + requests + Pillow + lxml)
 echo -e "\n${YELLOW}[STEP 1] Verifikasi Dependencies...${NC}"
+if [ "$IS_ANDROID" = "1" ]; then
+    # Pillow & lxml: tidak ada wheel cp314-android di PyPI/TUR-pip; pakai pkg.
+    if ! "$PY" -c "import PIL, lxml" 2>/dev/null; then
+        echo -e "${WARN} Pillow/lxml belum ada. ${FIX} pkg install python-pillow python-lxml...${NC}"
+        yes 2>/dev/null | pkg install -y python-pillow python-lxml 2>&1 | tail -2
+    fi
+    # pydantic-core: hanya TUR yang punya wheel cp314-android_24_arm64_v8a,
+    # dipin persis oleh pydantic 2.12.5 (lihat komentar di requirements.txt).
+    if ! "$PY" -c "import pydantic_core" 2>/dev/null; then
+        echo -e "${WARN} pydantic-core belum ada. ${FIX} Unduh wheel TUR (cp314-android)...${NC}"
+        WHEEL="pydantic_core-2.41.5-cp314-cp314-android_24_arm64_v8a.whl"
+        BASE="https://github.com/tur-pypi-dists/python3.14-pydantic_core/releases/download/v2.41.5"
+        if curl -fsSL --retry 2 -o "$TMPDIR/$WHEEL" "$BASE/$WHEEL"; then
+            "$PY" -m pip install --disable-pip-version-check "$TMPDIR/$WHEEL" 2>&1 | tail -2
+        else
+            echo -e "${FAIL} Gagal unduh wheel pydantic-core: $BASE"
+        fi
+    fi
+fi
+
 MISSING=""
-for mod in fastapi uvicorn requests PIL; do
+for mod in fastapi uvicorn requests bs4 PIL httpx2; do
     "$PY" -c "import $mod" 2>/dev/null || MISSING="$MISSING $mod"
 done
+if [ "$IS_ANDROID" = "1" ]; then
+    # Versi pydantic harus pas dengan wheel pydantic-core 2.41.5 TUR.
+    if ! "$PY" -c "import pydantic; assert pydantic.VERSION == '2.12.5'" 2>/dev/null; then
+        MISSING="$MISSING pydantic==2.12.5"
+    fi
+fi
 if [ -z "$MISSING" ]; then
     echo -e "${PASS} Semua package terinstall."
 else
+    MISSING=$(echo "$MISSING" | sed 's/ bs4 / beautifulsoup4 /; s/^bs4 /beautifulsoup4 /')
     echo -e "${WARN} Missing:$MISSING. ${FIX} Install...${NC}"
     "$PY" -m pip install --disable-pip-version-check --timeout 60 --retries 2 \
-        fastapi uvicorn requests Pillow 2>&1 | tail -3
+        $MISSING 2>&1 | tail -3
 fi
 
 # STEP 2: Syntax Check
 echo -e "\n${YELLOW}[STEP 2] Cek Syntax Python...${NC}"
-if "$PY" -m py_compile app.py komiku_web.py 2> syntax_error.log; then
+if "$PY" -m py_compile app.py komiku_web.py kiryuu_web.py 2> syntax_error.log; then
     echo -e "${PASS} Syntax valid."
 else
     echo -e "${FAIL} Syntax error! ${FIX} Menampilkan error...${NC}"

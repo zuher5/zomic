@@ -48,6 +48,7 @@ def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY
             time.sleep(base_delay * (2 ** i))
             continue
         return resp
+    return None
 
 HEADERS = {
     'User-Agent': (
@@ -154,6 +155,57 @@ _GENRE_LINKS = (
 )
 
 
+# Komiku.org memakai label genre Indonesia pada tag per-komik (di meta kartu,
+# tabel info detail, dll) meskipun daftar genre & slug-nya memakai Inggris.
+# Map ini menormalkan label tersebut ke Inggris; kata yang sudah Inggris
+# (Drama, Harem, Isekai, Slice of Life, …) langsung lolos tidak berubah.
+_GENRE_EN = {
+    'Aksi': 'Action', 'Fantasi': 'Fantasy', 'Romantis': 'Romance',
+    'Komedi': 'Comedy', 'Horor': 'Horror', 'Mengerikan': 'Horror',
+    'Misteri': 'Mystery', 'Fiksi Sains': 'Sci-Fi', 'Olahraga': 'Sports',
+    'Petualangan': 'Adventure', 'Sekolah': 'School',
+    'Kehidupan Sekolah': 'School Life', 'Sejarah': 'Historical',
+    'Sihir': 'Magic', 'Ilmu Sihir': 'Magic', 'Ketegangan': 'Thriller',
+    'Mitologi': 'Mythology', 'Dewasa': 'Adult', 'Dewa': 'God',
+    'Iblis': 'Demons', 'Setan': 'Demons', 'Kekuatan Super': 'Super Power',
+    'Pahlawan Super': 'Super Power', 'Gaib': 'Supernatural',
+    'Musik': 'Music', 'Makanan': 'Cooking', 'Memasak': 'Cooking',
+    'Medis': 'Medical', 'Dokter': 'Medical', 'Militer': 'Military',
+    'Polisi': 'Police', 'Psikologis': 'Psychological',
+    'Strategi': 'Strategy', 'Tragedi': 'Tragedy',
+    'Balas Dendam': 'Revenge', 'Dendam': 'Revenge',
+    'Regresi': 'Regression', 'Reinkarnasi': 'Reincarnation',
+    'Perjalanan Waktu': 'Time Travel', 'Sistem': 'System',
+    'Akademi': 'Academy', 'Perang': 'War', 'Komik': 'Comic',
+    'Anak': 'Kids', 'Rahasia': 'Secrets', 'Perkebunan': 'Farming',
+}
+
+
+_GENRE_NAME = {slug: name for slug, name in _GENRE_LINKS}
+
+
+def genre_name(slug):
+    """Nama English kanonik untuk slug genre komiku, atau None bila tak dikenal."""
+    return _GENRE_NAME.get((slug or '').lower())
+
+
+def normalize_genre(text):
+    """Normalisasi label genre komiku (Indonesia -> English).
+
+    Satu string bisa memuat beberapa genre dipisah koma atau 2+ spasi
+    (dari tabel info detail komiku.org). Kata yang tidak dikenal dibiarkan
+    apa adanya (mayoritas tag sudah Inggris).
+    """
+    if not text:
+        return text
+    out = []
+    for tok in re.split(r'\s{2,}|,', text):
+        tok = tok.strip()
+        if tok:
+            out.append(_GENRE_EN.get(tok, tok))
+    return ', '.join(out)
+
+
 class KomikuWeb:
     """Scraper komiku.org. Semua method mengembalikan struktur JSON-ready."""
 
@@ -213,7 +265,7 @@ class KomikuWeb:
             if parts:
                 ctype = parts[0]
             if len(parts) > 1:
-                genre = parts[1]
+                genre = normalize_genre(parts[1])
             items.append({
                 'slug': slug_m.group(1),
                 'title': _text(title_m.group(1)) if title_m else slug_m.group(1),
@@ -244,7 +296,7 @@ class KomikuWeb:
                 'title': _text(title_m.group(1)) if title_m else slug_m.group(1),
                 'cover': cover,
                 'type': _text(tinf.group(1)) if tinf else '',
-                'genre': _text(tinf.group(2)) if tinf else '',
+                'genre': normalize_genre(_text(tinf.group(2)) if tinf else ''),
                 'status': '',
                 'chapter': _text(chapters.get('Terbaru', '')),
             })
@@ -371,18 +423,25 @@ class KomikuWeb:
             f"{SEARCH_HOST}/genre/{genre}/page/{page}/?post_type=manga",
         ]
         last_error = None
+        last_exc = None
         items = []
         for index, url in enumerate(urls):
             try:
                 raw = self._fetch(url)
+                last_exc = None
                 items = self._dedupe(self._parse_bge(raw))
                 # Jika upstream mengembalikan halaman challenge/HTML kosong dengan
                 # status 200, lanjutkan ke endpoint fallback sebelum menyerah.
                 if items or index == len(urls) - 1:
                     break
             except requests.RequestException as exc:
+                last_exc = exc
                 last_error = exc
-        if not items and last_error is not None and index == len(urls) - 1:
+        # Hanya lempar error bila request TERAKHIR gagal. Kalau URL terakhir
+        # sukses (200) tapi kosong, itu hasil "tidak ada item" yang valid,
+        # bukan kegagalan yang harus dianggap error (error dari URL awal sudah
+        # tak relevan karena fallback justru ditemukan).
+        if not items and last_exc is not None:
             raise last_error
         return {
             'items': items,

@@ -181,8 +181,8 @@ class TestHelpers(unittest.TestCase):
 
     def test_clean_chapter_num(self):
         self.assertEqual(_clean_chapter_num('3862'), '3862')
-        self.assertEqual(_clean_chapter_num('3862.698726'), '3862698726')
-        self.assertEqual(_clean_chapter_num('1.5'), '15')
+        self.assertEqual(_clean_chapter_num('3862.698726'), '3862')
+        self.assertEqual(_clean_chapter_num('1.5'), '1')
         self.assertEqual(_clean_chapter_num(''), '')
 
 

@@ -4,6 +4,7 @@ import io
 import tempfile
 import threading
 import time
+import logging
 from typing import List
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
@@ -16,27 +17,87 @@ from datetime import datetime, timedelta
 
 from PIL import Image, features
 
-from komiku_web import KomikuWeb, retry_get
+from komiku_web import KomikuWeb, retry_get, genre_name, normalize_genre
 from kiryuu_web import KiryuuWeb
 
+log = logging.getLogger("zomic")
+
 # --- CACHE ---
-cache = {}
+class TTLCache:
+    """Cache TTL berbasis memori dengan batas jumlah item (bounded).
+
+    Dict polos tumbuh tanpa batas pada server persisten: setiap kombinasi
+    halaman/search/detail yang unik ditambahkan sekali dan tidak pernah
+    dibuang walaupun sudah kedaluwarsa. Kelas ini membuang entry yang sudah
+    kedaluwarsa saat pruning, dan bila masih melebihi batas, membuang entry
+    dengan waktu kedaluwarsa paling dekat lebih dulu.
+    """
+
+    def __init__(self, max_items=2048):
+        self._d = {}
+        self._max = max_items
+        self._lock = threading.Lock()
+
+    def get(self, key):
+        now = datetime.now()
+        with self._lock:
+            item = self._d.get(key)
+            if item and item['exp'] > now:
+                return item['data']
+        return None
+
+    def stale(self, key, max_age=21600):
+        """Kembalikan data yang baru kedaluwarsa saat upstream sedang gagal."""
+        now = datetime.now()
+        with self._lock:
+            item = self._d.get(key)
+            if not item:
+                return None
+            expired_for = now - item['exp']
+            if timedelta(0) <= expired_for <= timedelta(seconds=max_age):
+                return item['data']
+        return None
+
+    def set(self, key, data, ttl=3600):
+        with self._lock:
+            self._d[key] = {'data': data, 'exp': datetime.now() + timedelta(seconds=ttl)}
+            if len(self._d) > self._max:
+                self._prune_locked()
+
+    def clear(self):
+        with self._lock:
+            self._d.clear()
+
+    def __contains__(self, key):
+        with self._lock:
+            item = self._d.get(key)
+            return bool(item and item['exp'] > datetime.now())
+
+    def _prune_locked(self):
+        """Pruning internal — Wajib dipanggil dengan self._lock dipegang."""
+        now = datetime.now()
+        dead = [k for k, v in self._d.items() if v['exp'] <= now]
+        for k in dead:
+            self._d.pop(k, None)
+        if len(self._d) > self._max:
+            oldest = sorted(self._d, key=lambda k: self._d[k]['exp'])
+            for k in oldest[:len(oldest) - self._max]:
+                self._d.pop(k, None)
+
+
+cache = TTLCache()
+
+
 def get_cache(key):
-    if key in cache and cache[key]['exp'] > datetime.now():
-        return cache[key]['data']
-    return None
+    return cache.get(key)
+
 
 def get_stale_cache(key, max_age=21600):
-    """Kembalikan data cache yang baru kedaluwarsa saat upstream sedang gagal."""
-    item = cache.get(key)
-    if not item:
-        return None
-    expired_for = datetime.now() - item['exp']
-    if timedelta(0) <= expired_for <= timedelta(seconds=max_age):
-        return item['data']
-    return None
+    return cache.stale(key, max_age)
+
+
 def set_cache(key, data, ttl=3600):
-    cache[key] = {'data': data, 'exp': datetime.now() + timedelta(seconds=ttl)}
+    cache.set(key, data, ttl)
 
 # Cache hasil resolver portrait: positif 7 hari (cover jarang berubah),
 # negatif 1 hari (keputusan "portrait tidak ditemukan" tidak disimpan lama).
@@ -79,6 +140,7 @@ class KomikuAPI:
         try:
             data = self._get(f"/terbaru?page={page}")
         except Exception:
+            log.warning("komiku terbaru page=%s gagal, fallback ke page 1", page)
             data = self._get("/terbaru")
         if not isinstance(data, list):
             return []
@@ -150,9 +212,9 @@ class KomikuAPI:
         chapters = [c for c in reversed(chapters) if not (c['ch'] in seen or seen.add(c['ch']))]
 
         info = d.get('info') or {}
-        genre = d.get('genres') or []
+        genre = [normalize_genre(g) for g in (d.get('genres') or [])]
         if not genre and info.get('Genre'):
-            genre = [g for g in re.split(r'\s{2,}|,', info['Genre']) if g.strip()]
+            genre = [normalize_genre(g) for g in re.split(r'\s{2,}|,', info['Genre']) if g.strip()]
 
         similar = []
         for s in (d.get('similarKomik') or []):
@@ -201,12 +263,16 @@ class KomikuAPI:
             or (item.get('apiDetailLink') or item.get('detailUrl') or item.get('apiLink') or '').split('/')[-1]
         )
         genre = item.get('genre') or item.get('genres') or ''
+        if isinstance(genre, str):
+            genre = normalize_genre(genre)
+        else:
+            genre = ' '.join(normalize_genre(g) for g in genre)
         return {
             'title': item.get('title', 'Unknown'),
             'slug': slug or 'unknown',
             'cover': cover,
             'type': item.get('type', ''),
-            'genre': genre if isinstance(genre, str) else ' '.join(genre),
+            'genre': genre,
             'status': '',
             'chapter': item.get('latestChapter') or item.get('latestChapterTitle') or '',
             'readers': item.get('readers') or item.get('views') or '',
@@ -237,55 +303,6 @@ class KomikuAPI:
         results = (payload or {}).get('results') if isinstance(payload, dict) else None
         items = [self._card(i) for i in results] if isinstance(results, list) else []
         return self._resolve_portrait(items)
-
-    def billboard(self, limit=6):
-        """Slide billboard dengan cover landscape ASLI (banner upstream).
-
-        Endpoint listing lain me-resolve cover ke portrait 2:3 untuk grid kartu;
-        billboard 16:9 justru butuh banner lebar (manga_img_horizontal /
-        resize=450,235) agar tidak terpotong — jadi hasilnya sengaja TIDAK
-        lewat _resolve_portrait. Sumber: /komik-populer di-round-robin antar
-        tipe supaya tiap slide bervariasi, ditopup /rekomendasi mentah bila
-        masih kurang dari `limit`.
-        """
-        seen, out = set(), []
-
-        def push(card):
-            slug = card.get('slug')
-            cover = card.get('cover') or ''
-            if not slug or slug == 'unknown' or slug in seen or len(out) >= limit:
-                return
-            if not cover.startswith(('http://', 'https://')):
-                return
-            seen.add(slug)
-            out.append({k: card.get(k, '') for k in
-                        ('slug', 'title', 'type', 'chapter', 'readers', 'genre', 'cover')})
-
-        try:
-            data = self._get("/komik-populer")
-            groups = [data.get(k) for k in ('manga', 'manhwa', 'manhua')] if isinstance(data, dict) else []
-            idx = 0
-            progressed = True
-            while progressed and len(out) < limit:
-                progressed = False
-                for g in groups:
-                    items = (g or {}).get('items') or []
-                    if idx < len(items):
-                        progressed = True
-                        push(self._card(items[idx]))
-                idx += 1
-        except requests.RequestException:
-            pass  # populer gagal → coba top-up rekomendasi
-        if len(out) < limit:
-            try:
-                data = self._get("/rekomendasi")
-                for item in (data if isinstance(data, list) else []):
-                    push(self._card(item))
-                    if len(out) >= limit:
-                        break
-            except requests.RequestException:
-                pass
-        return out
 
     @staticmethod
     def _needs_portrait_resolution(card):
@@ -427,6 +444,15 @@ web = KomikuWeb()
 kiryuu = KiryuuWeb()
 
 
+def _en_item_genre(card):
+    """Normalisasi field genre sebuah item (string atau list) ke English."""
+    genre = card.get('genre')
+    if isinstance(genre, list):
+        card['genre'] = [normalize_genre(g) for g in genre]
+    elif genre:
+        card['genre'] = normalize_genre(genre)
+
+
 def _merge_items(komiku_items, kiryuu_items):
     """Gabung listing komiku + kiryuu tanpa duplikat slug.
 
@@ -441,6 +467,7 @@ def _merge_items(komiku_items, kiryuu_items):
         if slug and slug != 'unknown':
             seen.add(slug)
         card['source'] = 'komiku'
+        _en_item_genre(card)
         out.append(card)
     for card in kiryuu_items:
         slug = card.get('slug')
@@ -454,6 +481,7 @@ def _merge_items(komiku_items, kiryuu_items):
             continue
         seen.add(slug)
         card['source'] = 'kiryuu'
+        _en_item_genre(card)
         out.append(card)
     return out
 
@@ -463,7 +491,6 @@ app = FastAPI(title="Zomic Komik", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -504,6 +531,8 @@ def _edge_cache(response: Response, s_maxage: int, browser: int = 60, swr: int |
     if swr:
         cc += f", stale-while-revalidate={swr}"
         cdn += f", stale-while-revalidate={swr}"
+    if response is None:
+        return
     response.headers['Cache-Control'] = cc
     response.headers['CDN-Cache-Control'] = cdn
 
@@ -514,7 +543,8 @@ def latest(page: int = Query(1, ge=1), response: Response = None):
         komiku_data = api.latest(page)
         try:
             kiryuu_data = kiryuu.home(page).get('items', [])
-        except Exception:
+        except Exception as e:
+            log.warning("kiryuu.home(latest) gagal: %s", e)
             kiryuu_data = []
         return _merge_items(komiku_data, kiryuu_data)
 
@@ -551,7 +581,8 @@ def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(
         try:
             kiryuu_res = kiryuu.search(q, page)
             kiryuu_items = kiryuu_res.get('items', [])
-        except Exception:
+        except Exception as e:
+            log.warning("kiryuu.search(%s) gagal: %s", q, e)
             kiryuu_items = []
         komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items)
         return komiku_data
@@ -566,7 +597,8 @@ def genres(response: Response = None):
         komiku_genres = web.genres()
         try:
             kiryuu_genres = kiryuu.genres()
-        except Exception:
+        except Exception as e:
+            log.warning("kiryuu.genres() gagal: %s", e)
             kiryuu_genres = []
         # Merge genre lists by slug; prefer komiku names, add kiryuu-unique
         seen = set()
@@ -597,12 +629,18 @@ def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Respon
             if kiryuu_data_max > komiku_data.get('total_pages', 0):
                 komiku_data['total_pages'] = kiryuu_data_max
                 komiku_data['has_next'] = kiryuu_data.get('has_next', False)
-        except Exception:
+        except Exception as e:
+            log.warning("kiryuu.by_genre(%s) gagal: %s", slug, e)
             kiryuu_items = []
         komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items)
         return komiku_data
 
     data = cached(f"genre_{slug}_{page}", _genre, ttl=1800)
+    # Salin keluaran cache sebelum menambah field 'name', supaya objek di cache
+    # tidak ikut termutasi (rosak bila nilai genre_name berubah atau diakses
+    # bersamaan tanpa lock).
+    data = dict(data)
+    data['name'] = genre_name(slug) or slug.replace('-', ' ').strip().title() or 'Genre'
     if not data['items'] and page == 1:
         raise HTTPException(status_code=404, detail="genre tidak ditemukan")
     _edge_cache(response, s_maxage=600, swr=1800)
@@ -614,7 +652,8 @@ def popular(response: Response = None):
         komiku_groups = api.popular()
         try:
             kiryuu_pop = kiryuu.popular()
-        except Exception:
+        except Exception as e:
+            log.warning("kiryuu.popular() gagal: %s", e)
             kiryuu_pop = []
         if kiryuu_pop:
             # Merge kiryuu popular ke setiap grup komiku berdasarkan type
@@ -636,38 +675,12 @@ def recommended(response: Response = None):
         # kiryuu tidak punya /recommended, tapi kita bisa ambil dari home()
         try:
             kiryuu_items = kiryuu.home(1).get('items', [])[:20]
-        except Exception:
+        except Exception as e:
+            log.warning("kiryuu.home(recommended) gagal: %s", e)
             kiryuu_items = []
         return _merge_items(komiku_items, kiryuu_items)
 
     data = cached("recommended", _recommended, ttl=3600)
-    _edge_cache(response, s_maxage=600, swr=3600)
-    return data
-
-@app.get("/api/billboard")
-def billboard(response: Response = None):
-    """Slide hero: cover landscape asli upstream, tanpa resolve portrait.
-    Termasuk item kiryuu dari /popular.
-    """
-    def _billboard():
-        komiku_bill = api.billboard()
-        # Tambah item kiryuu populer sebagai billboard slide
-        try:
-            kiryuu_pop = kiryuu.popular()[:10]
-            for item in kiryuu_pop:
-                item['source'] = 'kiryuu'
-                # billboard memakai slug sebagai dedupe key
-            # Dedupe by slug, append kiryuu items yang belum ada
-            komiku_slugs = {i.get('slug') for i in komiku_bill}
-            for item in kiryuu_pop:
-                if item.get('slug') and item['slug'] not in komiku_slugs:
-                    komiku_bill.append(item)
-                    komiku_slugs.add(item['slug'])
-        except Exception:
-            pass
-        return komiku_bill
-
-    data = cached("billboard", _billboard, ttl=3600)
     _edge_cache(response, s_maxage=600, swr=3600)
     return data
 
@@ -711,8 +724,8 @@ def detail(slug: str, response: Response = None):
             # Tambahkan similar dari kiryuu jika komiku kosong
             if not komiku_d.get('similar') and kiryuu_d.get('similar'):
                 komiku_d['similar'] = kiryuu_d['similar']
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("kiryuu.detail(%s) gagal: %s", slug, e)
         return komiku_d
 
     data = cached(f"detail_{slug}", _detail, ttl=1800)
@@ -808,7 +821,9 @@ def _img_cache_put(key, data):
     if not data:
         return
     path = _img_cache_path(key)
-    tmp = f"{path}.tmp{os.getpid()}"
+    # Nama temp unik per (pid, thread) supaya dua thread yang meng-cache URL
+    # berbeda tidak menabrak file temp yang sama sebelum bagian file ter-replace.
+    tmp = f"{path}.tmp{os.getpid()}.{threading.get_ident()}"
     try:
         with open(tmp, 'wb') as fh:
             fh.write(data)
@@ -850,11 +865,23 @@ def _img_evict():
 
 
 # --- download terbatas ---
-_IMG_SESSION = requests.Session()
-_IMG_SESSION.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 13) Chrome/120.0 Mobile',
-    'Referer': 'https://komiku.org/',
-})
+# Session per-thread: requests.Session tidak thread-safe (sama seperti
+# scraper lain di modul ini), dan /api/img dipanggil banyak request secara
+# paralel (srcset 240/400/800 + cover detail). Referer dikirim per-request,
+# bukan dengan memutasi session bersama antar thread.
+_IMG_LOCAL = threading.local()
+
+
+def _img_session():
+    try:
+        return _IMG_LOCAL.session
+    except AttributeError:
+        s = requests.Session()
+        s.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13) Chrome/120.0 Mobile',
+        })
+        _IMG_LOCAL.session = s
+        return s
 
 _MIME = {'PNG': 'image/png', 'GIF': 'image/gif', 'WEBP': 'image/webp', 'JPEG': 'image/jpeg', 'AVIF': 'image/avif'}
 
@@ -866,11 +893,39 @@ def _sniff_format(data):
         return 'GIF'
     if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
         return 'WEBP'
+    # File AVIF: ISO BMFF dengan box ftyp. Ukuran box (4 byte big-endian) ada
+    # sebelum "ftyp"; brand bisa jauh di dalam data bila ftyp panjang, jadi
+    # batas akhir harus dari ukuran box, bukan slice tetap.
+    if len(data) >= 12 and data[4:8] == b'ftyp':
+        try:
+            box_len = int.from_bytes(data[:4], 'big')
+        except ValueError:
+            box_len = 0
+        end = min(len(data), max(12, box_len))
+        if b'avif' in data[8:end].lower() or b'avis' in data[8:end].lower():
+            return 'AVIF'
     return 'JPEG'
 
 
 def _ctype_from_bytes(data):
     return _MIME.get(_sniff_format(data), 'image/jpeg')
+
+
+# Kunci per-source-URL: saat cache source dingin, request paralel ke URL yang
+# sama (mis. srcset 240/400/800 dari satu cover) tidak perlu mendownload source
+# lebih dari sekali — yang menunggu tinggal memakai hasil yang sudah masuk cache.
+# Lock dibuang setelah pemakaian selesai supaya dict tidak menumpuk.
+_IMG_SRC_LOCKS = {}
+_IMG_SRC_LOCKS_GUARD = threading.Lock()
+
+
+def _img_source_lock(src_key):
+    with _IMG_SRC_LOCKS_GUARD:
+        lock = _IMG_SRC_LOCKS.get(src_key)
+        if lock is None:
+            lock = threading.Lock()
+            _IMG_SRC_LOCKS[src_key] = lock
+        return lock
 
 
 def _img_fetch(url):
@@ -879,36 +934,50 @@ def _img_fetch(url):
     cached_src = _img_cache_get(src_key, IMAGE_SOURCE_CACHE_TTL)
     if cached_src is not None:
         return cached_src, _ctype_from_bytes(cached_src)
-    # Set referer berdasarkan host sumber
+    # Referer per-request berdasarkan host sumber (bukan mutasi session bersama).
     low = url.lower()
-    if 'kiryuu.to' in low or 'yuucdn.com' in low:
-        _IMG_SESSION.headers['Referer'] = 'https://v7.kiryuu.to/'
-    else:
-        _IMG_SESSION.headers['Referer'] = 'https://komiku.org/'
+    referer = 'https://v7.kiryuu.to/' if ('kiryuu.to' in low or 'yuucdn.com' in low) else 'https://komiku.org/'
+    session = _img_session()
+    lock = _img_source_lock(src_key)
     try:
-        req = retry_get(_IMG_SESSION, url, timeout=(5, 15), stream=True)
-        if req.status_code != 200:
-            req.close()
-            raise HTTPException(status_code=502, detail="upstream unavailable")
-        ctype = req.headers.get('Content-Type', '').split(';')[0].strip().lower()
-        if not ctype.startswith('image/'):
-            req.close()
-            raise HTTPException(status_code=502, detail="not an image")
-        chunks, total = [], 0
-        for chunk in req.iter_content(chunk_size=65536):
-            total += len(chunk)
-            if total > IMAGE_MAX_BYTES:
+        with lock:
+            try:
+                cached_src = _img_cache_get(src_key, IMAGE_SOURCE_CACHE_TTL)
+                if cached_src is not None:
+                    return cached_src, _ctype_from_bytes(cached_src)
+                req = retry_get(session, url, timeout=(5, 15), stream=True,
+                                headers={'Referer': referer})
+                if req is None or req.status_code != 200:
+                    if req is not None:
+                        req.close()
+                    raise HTTPException(status_code=502, detail="upstream unavailable")
+                ctype = req.headers.get('Content-Type', '').split(';')[0].strip().lower()
+                if not ctype.startswith('image/'):
+                    req.close()
+                    raise HTTPException(status_code=502, detail="not an image")
+                chunks, total = [], 0
+                for chunk in req.iter_content(chunk_size=65536):
+                    total += len(chunk)
+                    if total > IMAGE_MAX_BYTES:
+                        req.close()
+                        raise HTTPException(status_code=502, detail="image too large")
+                    chunks.append(chunk)
                 req.close()
-                raise HTTPException(status_code=502, detail="image too large")
-            chunks.append(chunk)
-        req.close()
-    except HTTPException:
-        raise
-    except requests.RequestException:
-        raise HTTPException(status_code=502, detail="upstream error")
-    data = b''.join(chunks)
-    _img_cache_put(src_key, data)
-    return data, ctype
+                data = b''.join(chunks)
+                if not data:
+                    raise HTTPException(status_code=502, detail="empty image")
+            except HTTPException:
+                raise
+            except requests.RequestException:
+                raise HTTPException(status_code=502, detail="upstream error")
+            _img_cache_put(src_key, data)
+            return data, ctype
+    finally:
+        # Bersihkan lock DARI dict SETELAH blok with selesai, supaya thread
+        # lain yang menunggu di lock yang sama memakai hasil yang sudah masuk
+        # cache — bukan membuat lock baru dan mendownload ulang.
+        with _IMG_SRC_LOCKS_GUARD:
+            _IMG_SRC_LOCKS.pop(src_key, None)
 
 
 def _pick_format(fmt, accept):
@@ -937,7 +1006,9 @@ def _process_image(data, width, eff_fmt, quality):
     if width and width < w:
         nh = max(1, int(round(h * width / w)))
         img = img.resize((width, nh), Image.LANCZOS)
-    if eff_fmt in ('JPEG', 'WEBP', 'AVIF'):
+    # Hanya JPEG yang wajib RGB (tanpa alpha). WebP/AVIF mendukung transparansi,
+    # jadi pertahankan RGBA/P sehingga gambar dengan alpha tidak kehitam-hitaman.
+    if eff_fmt == 'JPEG' and img.mode not in ('RGB', 'L'):
         img = img.convert('RGB')
     out = io.BytesIO()
     if eff_fmt == 'JPEG':
@@ -1050,22 +1121,13 @@ def health(deep: int = Query(0, ge=0, le=1)):
     return out
 
 
-@app.get("/", response_class=HTMLResponse)
-def root():
-    try:
-        with open(INDEX_PATH, encoding="utf-8") as fh:
-            return HTMLResponse(fh.read())
-    except OSError:
-        raise HTTPException(status_code=500, detail="frontend tidak ditemukan: web/index.html")
-
-
 # Font self-host frontend. Nama file divalidasi ketat (tanpa path traversal),
 # dan di-cache immutable karena berisi hash versi dari subset Poppins.
 FONT_RE = re.compile(r"poppins-(400|600|700|800)\.woff2$")
 
 
 @app.get("/fonts/{name}")
-def font_file(name: str, response: Response):
+def font_file(name: str):
     if not FONT_RE.fullmatch(name):
         raise HTTPException(status_code=404)
     path = os.path.join(WEB_DIR, "fonts", name)
@@ -1074,8 +1136,32 @@ def font_file(name: str, response: Response):
             data = fh.read()
     except OSError:
         raise HTTPException(status_code=404)
-    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-    return Response(data, media_type="font/woff2")
+    return Response(data, media_type="font/woff2",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@app.get("/", response_class=HTMLResponse)
+def root():
+    return _serve_index()
+
+
+@app.get("/{full_path:path}", response_class=HTMLResponse, include_in_schema=False)
+def spa_fallback(full_path: str):
+    """SPA fallback: semua path non-API (mis. /explore, /manga/slug, /genre/action)
+    dilayani index.html supaya router history di frontend yang menangani halaman.
+    Route API & aset eksplisit tetap diprioritaskan karena terdaftar lebih dulu.
+    """
+    if full_path.startswith(("api/", "fonts/")):
+        raise HTTPException(status_code=404, detail="not found")
+    return _serve_index()
+
+
+def _serve_index():
+    try:
+        with open(INDEX_PATH, encoding="utf-8") as fh:
+            return HTMLResponse(fh.read())
+    except OSError:
+        raise HTTPException(status_code=500, detail="frontend tidak ditemukan: web/index.html")
 
 
 # --- RUN ---
