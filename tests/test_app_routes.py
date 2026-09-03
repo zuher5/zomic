@@ -82,6 +82,22 @@ class ApiRoutesTest(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("Zomic", res.text)
 
+    def test_to_en_ago_converts_upstream_update_time(self):
+        f = app_module._to_en_ago
+        self.assertEqual(f("24 menit lalu"), "24 min ago")
+        self.assertEqual(f("1 menit lalu"), "1 min ago")
+        self.assertEqual(f("51 detik lalu"), "51 sec ago")
+        self.assertEqual(f("1 jam lalu"), "1 hour ago")
+        self.assertEqual(f("3 jam lalu"), "3 hours ago")
+        self.assertEqual(f("1 hari lalu"), "1 day ago")
+        self.assertEqual(f("2 hari lalu"), "2 days ago")
+        self.assertEqual(f("3 bulan lalu"), "3 months ago")
+        self.assertEqual(f("1 tahun lalu"), "1 year ago")
+        # Tak dikenali -> apa adanya (kiryuu EN, kosong, '-')
+        self.assertEqual(f("10 months ago"), "10 months ago")
+        self.assertEqual(f(""), "")
+        self.assertEqual(f("-"), "-")
+
 
 if __name__ == "__main__":
     unittest.main()

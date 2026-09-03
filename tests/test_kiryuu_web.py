@@ -182,7 +182,8 @@ class TestHelpers(unittest.TestCase):
     def test_clean_chapter_num(self):
         self.assertEqual(_clean_chapter_num('3862'), '3862')
         self.assertEqual(_clean_chapter_num('3862.698726'), '3862')
-        self.assertEqual(_clean_chapter_num('1.5'), '1')
+        self.assertEqual(_clean_chapter_num('12.5'), '12.5')
+        self.assertEqual(_clean_chapter_num('12-5'), '12-5')
         self.assertEqual(_clean_chapter_num(''), '')
 
 
@@ -256,9 +257,9 @@ class TestDetail(unittest.TestCase):
         self.assertIn('Perjalanan', d['sinopsis'])
         self.assertEqual(d['rating'], '7.6')
         self.assertEqual(len(d['chapters']), 3)
-        self.assertEqual(d['chapters'][0]['ch'], '3862')
+        self.assertEqual(d['chapters'][0]['ch'], '3860')
         self.assertEqual(d['chapters'][1]['ch'], '3861')
-        self.assertEqual(d['chapters'][2]['ch'], '3860')
+        self.assertEqual(d['chapters'][2]['ch'], '3862')
 
     def test_detail_alt_names(self):
         web = KiryuuWeb.__new__(KiryuuWeb)

@@ -24,8 +24,25 @@ PER_PAGE_SEARCH = 10
 
 # Status yang boleh dicoba ulang karena gangguan upstream bersifat sementara.
 RETRY_STATUS = {429, 500, 502, 503, 504}
+# 3x attempt: upstream (api-komiku.vercel.app, image*.komiku.to) terbukti
+# memutus koneksi seketika secara acak — retry instan murah (~0.1s) dan
+# menaikkan peluang sukses per call dari ~55% (2x) ke ~70% (3x).
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.35
+
+
+def _retry_delay(resp, i, base_delay):
+    """Jeda sebelum attempt berikutnya.
+
+    Hormati header Retry-After pada 429 (cap 10 dtk) karena burst paralel
+    kita bisa memicu throttle upstream; selain itu exponential backoff ringan.
+    """
+    if resp is not None and resp.status_code == 429:
+        try:
+            return min(max(float(resp.headers.get('Retry-After', '')), 0.0), 10.0)
+        except (TypeError, ValueError):
+            pass
+    return base_delay * (2 ** i)
 
 
 def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY, **kwargs):
@@ -45,7 +62,7 @@ def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY
             time.sleep(base_delay * (2 ** i))
             continue
         if resp.status_code in RETRY_STATUS and i < attempts - 1:
-            time.sleep(base_delay * (2 ** i))
+            time.sleep(_retry_delay(resp, i, base_delay))
             continue
         return resp
     return None
@@ -209,7 +226,7 @@ def normalize_genre(text):
 class KomikuWeb:
     """Scraper komiku.org. Semua method mengembalikan struktur JSON-ready."""
 
-    def __init__(self, timeout=25):
+    def __init__(self, timeout=15):
         self.timeout = timeout
         self._local = threading.local()
 

@@ -20,6 +20,7 @@ SITE = "https://v7.kiryuu.to"
 PER_PAGE = 24
 
 RETRY_STATUS = {429, 500, 502, 503, 504}
+# 3x attempt: lihat komentar yang sama di komiku_web.py.
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.35
 
@@ -34,6 +35,17 @@ HEADERS = {
 }
 
 
+def _retry_delay(resp, i, base_delay):
+    """Jeda sebelum attempt berikutnya: hormati Retry-After pada 429
+    (cap 10 dtk), selain itu exponential backoff ringan."""
+    if resp is not None and resp.status_code == 429:
+        try:
+            return min(max(float(resp.headers.get('Retry-After', '')), 0.0), 10.0)
+        except (TypeError, ValueError):
+            pass
+    return base_delay * (2 ** i)
+
+
 def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY, **kwargs):
     for i in range(attempts):
         try:
@@ -46,7 +58,7 @@ def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY
             time.sleep(base_delay * (2 ** i))
             continue
         if resp.status_code in RETRY_STATUS and i < attempts - 1:
-            time.sleep(base_delay * (2 ** i))
+            time.sleep(_retry_delay(resp, i, base_delay))
             continue
         return resp
     return None
@@ -76,28 +88,38 @@ def _clean_chapter_num(ch_num):
     """Bersihkan nomor chapter dari data-chapter-number.
 
     WordPress Manga Stream memakai float sebagai penanda urutan rilis:
-    '3862.698726' artinya chapter 3862 yang rilis paling akhir. Bagian desimal
-    adalah artefak pengurutan, bukan nomor chapter — ambil bagian sebelum titik
-    supaya '3862.698726' jadi '3862', bukan '3862698726'.
+    '3862.698726' artinya chapter 3862 yang rilis paling akhir — desimal
+    panjang (>2 digit) adalah artefak pengurutan, bukan nomor chapter.
+    Sebaliknya desimal pendek ('12.5') dan dash ('12-5') adalah nomor
+    chapter asli dan dipertahankan apa adanya (jangan digabung: '12-5'
+    bukan chapter 125, '12.5' bukan chapter 12).
     """
     ch_str = str(ch_num or '').strip()
     if '.' in ch_str:
-        ch_str = ch_str.split('.')[0]
-    return re.sub(r'[^0-9]', '', ch_str)
+        int_part, _, frac = ch_str.partition('.')
+        frac_digits = re.sub(r'[^0-9]', '', frac)
+        if len(frac_digits) > 2:
+            return re.sub(r'[^0-9]', '', int_part)
+        int_digits = re.sub(r'[^0-9]', '', int_part)
+        return f"{int_digits}.{frac_digits}" if int_digits else frac_digits
+    # Tanpa titik: pertahankan dash (chapter range ala '12-5').
+    return re.sub(r'[^0-9\-]', '', ch_str).strip('-')
 
 
 # --- Regex patterns untuk parsing ---
 
-# Card listing: link ke manga + cover image
+# Card listing: link ke manga + cover image.
+# Host dibuat opsional (domain bisa bump v7->v8 / .to->.id, atau href relatif):
+# grup 1 = href (absolut/relatif), grup 2 = slug. Nomor grup tidak berubah.
 _CARD_LINK = re.compile(
-    r'<a[^>]*href="(https://v7\.kiryuu\.to/manga/([a-z0-9\-]+)/)"[^>]*>', re.I
+    r'<a[^>]*href="((?:https?://[^"/]+)?/manga/([a-z0-9\-]+)/)"[^>]*>', re.I
 )
 _CARD_IMG = re.compile(
-    r'<img[^>]*(?:src|data-src)="([^"]*v7\.kiryuu\.to/wp-content/[^"]*)"[^>]*class="[^"]*wp-post-image',
+    r'<img[^>]*(?:src|data-src)="(https?://[^"]*?/wp-content/[^"]*)"[^>]*class="[^"]*wp-post-image',
     re.I
 )
 _CARD_IMG_FALLBACK = re.compile(
-    r'<img[^>]*src="(https://v7\.kiryuu\.to/wp-content/uploads/[^"]+)"', re.I
+    r'<img[^>]*src="(https?://[^"]*?/wp-content/uploads/[^"]+)"', re.I
 )
 _CARD_TITLE_H1 = re.compile(
     r'<h1[^>]*class="[^"]*line-clamp-2[^"]*"[^>]*>\s*(.+?)\s*</h1>', re.S
@@ -112,13 +134,13 @@ _CARD_TYPE = re.compile(
     r'static/svg/(manga|manhwa|manhua)\.svg', re.I
 )
 _CHAPTER_URL = re.compile(
-    r'href="(https://v7\.kiryuu\.to/manga/[^/]+/chapter-([a-z0-9.\-]+)/)"', re.I
+    r'href="((?:https?://[^"/]+)?/manga/[^/]+/chapter-([a-z0-9.\-]+)/)"', re.I
 )
 _CHAPTER_TIME = re.compile(
     r'<time[^>]*datetime="([^"]+)"', re.I
 )
 _PAGINATION = re.compile(
-    r'href="https://v7\.kiryuu\.to/\?page=(\d+)&pagedfor=(\w+)"'
+    r'href="[^"]*?\?page=(\d+)&pagedfor=(\w+)"'
 )
 _TOTAL_PAGES = re.compile(
     r'page=(\d+)&pagedfor="[^"]*"[^>]*>\s*(\d+)\s*</a>'
@@ -159,20 +181,20 @@ _CHAPTER_DATE = re.compile(
     r'<time[^>]*datetime="([^"]+)"[^>]*>\s*([^<]*)\s*</time>', re.I
 )
 
-# Chapter images
+# Chapter images: CDN bisa ganti host — terima host apa pun berekstensi gambar.
 _CHAPTER_IMG_SECTION = re.compile(
     r'<section[^>]*data-image-data="1"[^>]*>(.*?)</section>', re.S
 )
 _CHAPTER_IMG = re.compile(
-    r"""src=['"]?(https://yuucdn\.com/[^'">\s]+)['"]?""", re.I
+    r"""src=['"]?(https://[^'">\s]+\.(?:webp|jpe?g|png|gif|avif)(?:\?[^'">\s]*)?)['"]?""", re.I
 )
 _CHAPTER_IMG_FALLBACK = re.compile(
-    r"""src=['"]?(https://[^'">\s]+/manga/[^'">\s]+\.(?:webp|jpg|png))['"]?""", re.I
+    r"""src=['"]?(https://[^'">\s]+/manga/[^'">\s]+\.(?:webp|jpe?g|png|gif|avif))['"]?""", re.I
 )
 
-# Genre index patterns
+# Genre index patterns (host opsional, grup tetap slug+nama)
 _GENRE_FROM_PAGE = re.compile(
-    r'href="https://v7\.kiryuu\.to/genre/([a-z0-9\-]+)/"[^>]*>\s*<span[^>]*>([^<]+)</span>',
+    r'href="(?:https?://[^"/]+)?/genre/([a-z0-9\-]+)/"[^>]*>\s*<span[^>]*>([^<]+)</span>',
     re.I
 )
 
@@ -180,7 +202,7 @@ _GENRE_FROM_PAGE = re.compile(
 class KiryuuWeb:
     """Scraper kiryuu.to. Semua method mengembalikan struktur JSON-ready."""
 
-    def __init__(self, timeout=25):
+    def __init__(self, timeout=15):
         self.timeout = timeout
         self._local = threading.local()
 
@@ -234,13 +256,12 @@ class KiryuuWeb:
         type_m = _CARD_TYPE.search(block)
         type_val = type_m.group(1).title() if type_m else ''
 
-        # Chapter dari link chapter: ambil angka utama saja (3862 dari 3862.698726)
+        # Chapter dari link chapter: pakai aturan yang sama dengan
+        # _clean_chapter_num (desimal pendek & dash dipertahankan).
         ch_m = _CHAPTER_URL.search(block)
         chapter = ''
         if ch_m:
-            ch_slug = ch_m.group(2)
-            ch_num_m = re.match(r'(\d+)', ch_slug)
-            chapter = ch_num_m.group(1) if ch_num_m else ch_slug
+            chapter = _clean_chapter_num(ch_m.group(2))
 
         # Status
         status = ''
@@ -508,8 +529,15 @@ class KiryuuWeb:
                     'date': time_str,
                 })
 
-        # Similar (rekomendasi) - cari section yang mirip
+        # Similar (rekomendasi) - halaman kiryuu tidak punya blok rekomendasi,
+        # jadi selalu kosong; app.py mengisi dari listing se-genre untuk
+        # halaman kiryuu-standalone.
         similar = []
+
+        # HTML kiryuu urut newest-first; balik ke oldest-first agar kontrak
+        # seragam dengan komiku (frontend: chapters[0] = chapter pertama
+        # untuk "Start reading", display di-reverse saat "Latest first").
+        chapters.reverse()
 
         return {
             'title': title,

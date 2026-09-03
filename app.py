@@ -103,6 +103,35 @@ def set_cache(key, data, ttl=3600):
 # negatif 1 hari (keputusan "portrait tidak ditemukan" tidak disimpan lama).
 PORTRAIT_POS_TTL = 604800
 PORTRAIT_NEG_TTL = 86400
+# Upstream komiku mengirim updateTime bahasa Indonesia ("24 menit lalu").
+# Kanonik disimpan & disajikan EN ("24 min ago") — satu titik konversi agar
+# label frontend dan parser NEW (updMin) konsisten.
+_EN_AGO_RE = re.compile(
+    r'(\d+)\s*(detik|menit|jam|hari|minggu|bulan|tahun)\s*lalu', re.I)
+
+
+def _to_en_ago(s):
+    """'24 menit lalu' -> '24 min ago'. Tak dikenali -> kembalikan apa adanya."""
+    m = _EN_AGO_RE.search(str(s or ''))
+    if not m:
+        return s or ''
+    n = int(m.group(1))
+    unit = m.group(2).lower()
+    if unit == 'detik':
+        word = 'sec'
+    elif unit == 'menit':
+        word = 'min'
+    elif unit == 'jam':
+        word = 'hour' if n == 1 else 'hours'
+    elif unit == 'hari':
+        word = 'day' if n == 1 else 'days'
+    elif unit == 'minggu':
+        word = 'week' if n == 1 else 'weeks'
+    elif unit == 'bulan':
+        word = 'month' if n == 1 else 'months'
+    else:
+        word = 'year' if n == 1 else 'years'
+    return f"{n} {word} ago"
 # Paralelisme resolver portrait. Cukup kecil untuk tidak membebani upstream,
 # cukup besar supaya listing besar (/rekomendasi ~40 item) selesai jauh di
 # bawah batas 60s function Vercel saat cache dingin.
@@ -131,7 +160,7 @@ class KomikuAPI:
             self._local.session = s
             return s
 
-    def _get(self, path, timeout=20):
+    def _get(self, path, timeout=12):
         resp = retry_get(self._session(), f"{self.BASE}{path}", timeout=timeout)
         resp.raise_for_status()
         return resp.json()
@@ -147,7 +176,7 @@ class KomikuAPI:
         result = []
         for item in data:
             card = self._card(item)
-            card['update'] = item.get('updateTime', '')
+            card['update'] = _to_en_ago(item.get('updateTime', ''))
             card['colored'] = bool(item.get('isColored'))
             result.append(card)
         return self._resolve_portrait(result)
@@ -201,7 +230,7 @@ class KomikuAPI:
         for ch in d.get('chapters', []):
             ch_num = ch.get('chapterNumber')
             if ch_num is None:
-                m = re.search(r'chapter-(\d+(?:-\d+)?)', (ch.get('apiLink') or ''))
+                m = re.search(r'chapter-(\d+(?:[.-]\d+)?)', (ch.get('apiLink') or ''))
                 ch_num = m.group(1) if m else ''
             chapters.append({
                 'title': ch.get('title', f"Chapter {ch_num}"),
@@ -289,7 +318,11 @@ class KomikuAPI:
                     continue
                 items = [self._card(i) for i in (group.get('items') or [])]
                 if items:
-                    groups.append({'key': key, 'title': group.get('title', key.title()), 'items': self._resolve_portrait(items)})
+                    groups.append({'key': key, 'title': group.get('title', key.title()), 'items': items})
+        # Resolve SEKALI untuk semua grup (bukan 1 pool per grup): resolve
+        # memutasi dict card in-place, jadi hasil pool menular ke tiap grup.
+        if groups:
+            self._resolve_portrait([c for g in groups for c in g['items']])
         return groups
 
     def recommended(self):
@@ -485,6 +518,44 @@ def _merge_items(komiku_items, kiryuu_items):
         out.append(card)
     return out
 
+
+def _similar_from_kiryuu_genre(kiryuu, detail_data, slug, limit=10):
+    """Similar pengganti untuk halaman kiryuu-standalone.
+
+    Halaman manga kiryuu tidak punya blok rekomendasi, jadi rail "You may
+    also like" dibangun dari listing se-genre pertama (kecuali diri
+    sendiri), bentuk sama persis dengan similar komiku. Hanya dipanggil di
+    path fallback (komiku gagal) — tambah 1 fetch kiryuu yang stabil.
+    Tanpa _resolve_portrait: cover wp-content kiryuu sudah portrait.
+    Gagal/kosong → [] (section disembunyikan seperti perilaku lama).
+    """
+    genres = detail_data.get('genre') or []
+    names = genres if isinstance(genres, list) else [genres]
+    for name in names:
+        gslug = re.sub(r'[^a-z0-9\-]', '', str(name).lower().replace(' ', '-'))
+        if not gslug:
+            continue
+        try:
+            items = (kiryuu.by_genre(gslug, 1) or {}).get('items', [])
+        except Exception:
+            continue
+        out = []
+        for c in items:
+            if not c.get('slug') or c.get('slug') == slug:
+                continue
+            out.append({
+                'slug': c.get('slug', ''),
+                'title': c.get('title', ''),
+                'cover': c.get('cover', ''),
+                'type': c.get('type', ''),
+                'genre': str(name),
+            })
+            if len(out) >= limit:
+                break
+        if out:
+            return out
+    return []
+
 # --- FASTAPI APP ---
 app = FastAPI(title="Zomic Komik", version="2.0.0")
 
@@ -494,6 +565,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _parallel(first_fn, second_fn):
+    """Jalankan dua producer independen secara paralel; kembalikan (r1, r2).
+
+    Semantik error tidak berubah: exception dari salah satu sisi di-raise
+    kembali saat .result() dipanggil sesuai urutan submit, jadi sisi yang
+    me-raise di kode sequential tetap me-raise di sini. Tangkap exception
+    di dalam fn bila sisi itu memang menoleransi kegagalan (pola kiryuu).
+    """
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f1 = ex.submit(first_fn)
+        f2 = ex.submit(second_fn)
+        return f1.result(), f2.result()
 
 
 def cached(key, producer, ttl=3600, stale_ttl=21600):
@@ -508,11 +593,13 @@ def cached(key, producer, ttl=3600, stale_ttl=21600):
         if stale is not None:
             return stale
         code = e.response.status_code if e.response is not None else 502
+        log.warning("cached(%s) HTTP %s, tanpa stale", key, code)
         raise HTTPException(status_code=404 if code == 404 else 502, detail=f"upstream {code}")
-    except requests.RequestException:
+    except requests.RequestException as e:
         stale = get_stale_cache(key, stale_ttl)
         if stale is not None:
             return stale
+        log.warning("cached(%s) gagal: %s, tanpa stale", key, type(e).__name__)
         raise HTTPException(status_code=502, detail="upstream error")
     set_cache(key, data, ttl)
     return data
@@ -540,13 +627,24 @@ def _edge_cache(response: Response, s_maxage: int, browser: int = 60, swr: int |
 @app.get("/api/latest")
 def latest(page: int = Query(1, ge=1), response: Response = None):
     def _latest():
-        komiku_data = api.latest(page)
-        try:
-            kiryuu_data = kiryuu.home(page).get('items', [])
-        except Exception as e:
-            log.warning("kiryuu.home(latest) gagal: %s", e)
-            kiryuu_data = []
-        return _merge_items(komiku_data, kiryuu_data)
+        def _komiku():
+            try:
+                return api.latest(page)
+            except Exception as e:
+                log.warning("komiku.latest(page=%d) gagal: %s", page, e)
+                return None
+
+        def _kiryuu():
+            try:
+                return kiryuu.home(page).get('items', [])
+            except Exception as e:
+                log.warning("kiryuu.home(latest) gagal: %s", e)
+                return []
+
+        komiku_data, kiryuu_data = _parallel(_komiku, _kiryuu)
+        if komiku_data is None and not kiryuu_data:
+            raise requests.RequestException("latest: kedua upstream gagal")
+        return _merge_items(komiku_data or [], kiryuu_data or [])
 
     data = cached(f"latest_{page}", _latest, ttl=600)
     _edge_cache(response, s_maxage=300, swr=900)
@@ -576,15 +674,28 @@ def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(
            response: Response = None):
     """Pencarian di seluruh katalog, bukan hanya 20 komik terbaru."""
     def _search():
-        komiku_data = web.search(q, page)
-        komiku_data['items'] = api._resolve_portrait(komiku_data['items'])
-        try:
-            kiryuu_res = kiryuu.search(q, page)
-            kiryuu_items = kiryuu_res.get('items', [])
-        except Exception as e:
-            log.warning("kiryuu.search(%s) gagal: %s", q, e)
-            kiryuu_items = []
-        komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items)
+        def _komiku():
+            try:
+                komiku_data = web.search(q, page)
+                komiku_data['items'] = api._resolve_portrait(komiku_data['items'])
+                return komiku_data
+            except Exception as e:
+                log.warning("komiku.search(%s) gagal: %s", q, e)
+                return None
+
+        def _kiryuu():
+            try:
+                return kiryuu.search(q, page).get('items', [])
+            except Exception as e:
+                log.warning("kiryuu.search(%s) gagal: %s", q, e)
+                return []
+
+        komiku_data, kiryuu_items = _parallel(_komiku, _kiryuu)
+        if komiku_data is None and not kiryuu_items:
+            raise requests.RequestException("search: kedua upstream gagal")
+        komiku_data = komiku_data or {'items': [], 'page': page, 'per_page': 10,
+                                      'query': q, 'has_next': False}
+        komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items or [])
         return komiku_data
 
     data = cached(f"search_{q.lower()}_{page}", _search, ttl=900)
@@ -594,19 +705,30 @@ def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(
 @app.get("/api/genres")
 def genres(response: Response = None):
     def _genres():
-        komiku_genres = web.genres()
-        try:
-            kiryuu_genres = kiryuu.genres()
-        except Exception as e:
-            log.warning("kiryuu.genres() gagal: %s", e)
-            kiryuu_genres = []
+        def _komiku():
+            try:
+                return web.genres()
+            except Exception as e:
+                log.warning("komiku.genres() gagal: %s", e)
+                return None
+
+        def _kiryuu():
+            try:
+                return kiryuu.genres()
+            except Exception as e:
+                log.warning("kiryuu.genres() gagal: %s", e)
+                return []
+
+        komiku_genres, kiryuu_genres = _parallel(_komiku, _kiryuu)
+        if komiku_genres is None and not kiryuu_genres:
+            raise requests.RequestException("genres: kedua upstream gagal")
         # Merge genre lists by slug; prefer komiku names, add kiryuu-unique
         seen = set()
         out = []
-        for g in komiku_genres:
+        for g in komiku_genres or []:
             seen.add(g['slug'])
             out.append(g)
-        for g in kiryuu_genres:
+        for g in kiryuu_genres or []:
             if g['slug'] not in seen:
                 seen.add(g['slug'])
                 out.append(g)
@@ -619,19 +741,33 @@ def genres(response: Response = None):
 @app.get("/api/genre/{slug}")
 def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Response = None):
     def _genre():
-        komiku_data = web.by_genre(slug, page)
-        komiku_data['items'] = api._resolve_portrait(komiku_data['items'])
-        try:
-            kiryuu_data = kiryuu.by_genre(slug, page)
-            kiryuu_items = kiryuu_data.get('items', [])
-            # Merge pagination: gunakan max total_pages dari kedua sumber
-            kiryuu_data_max = kiryuu_data.get('total_pages', 0)
-            if kiryuu_data_max > komiku_data.get('total_pages', 0):
-                komiku_data['total_pages'] = kiryuu_data_max
-                komiku_data['has_next'] = kiryuu_data.get('has_next', False)
-        except Exception as e:
-            log.warning("kiryuu.by_genre(%s) gagal: %s", slug, e)
-            kiryuu_items = []
+        def _komiku():
+            try:
+                komiku_data = web.by_genre(slug, page)
+                komiku_data['items'] = api._resolve_portrait(komiku_data['items'])
+                return komiku_data
+            except Exception as e:
+                log.warning("komiku.by_genre(%s) gagal: %s", slug, e)
+                return None
+
+        def _kiryuu():
+            try:
+                return kiryuu.by_genre(slug, page)
+            except Exception as e:
+                log.warning("kiryuu.by_genre(%s) gagal: %s", slug, e)
+                return {}
+
+        komiku_data, kiryuu_data = _parallel(_komiku, _kiryuu)
+        kiryuu_items = (kiryuu_data or {}).get('items', [])
+        if komiku_data is None and not kiryuu_items:
+            raise requests.RequestException("genre: kedua upstream gagal")
+        komiku_data = komiku_data or {'items': [], 'page': page, 'per_page': 10,
+                                      'genre': slug, 'has_next': False}
+        # Merge pagination: gunakan max total_pages dari kedua sumber
+        kiryuu_data_max = (kiryuu_data or {}).get('total_pages', 0)
+        if kiryuu_data_max > komiku_data.get('total_pages', 0):
+            komiku_data['total_pages'] = kiryuu_data_max
+            komiku_data['has_next'] = kiryuu_data.get('has_next', False)
         komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items)
         return komiku_data
 
@@ -649,12 +785,24 @@ def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Respon
 @app.get("/api/popular")
 def popular(response: Response = None):
     def _popular():
-        komiku_groups = api.popular()
-        try:
-            kiryuu_pop = kiryuu.popular()
-        except Exception as e:
-            log.warning("kiryuu.popular() gagal: %s", e)
-            kiryuu_pop = []
+        def _komiku():
+            try:
+                return api.popular()
+            except Exception as e:
+                log.warning("komiku.popular() gagal: %s", e)
+                return None
+
+        def _kiryuu():
+            try:
+                return kiryuu.popular()
+            except Exception as e:
+                log.warning("kiryuu.popular() gagal: %s", e)
+                return []
+
+        komiku_groups, kiryuu_pop = _parallel(_komiku, _kiryuu)
+        if komiku_groups is None and not kiryuu_pop:
+            raise requests.RequestException("popular: kedua upstream gagal")
+        komiku_groups = komiku_groups or []
         if kiryuu_pop:
             # Merge kiryuu popular ke setiap grup komiku berdasarkan type
             for group in komiku_groups:
@@ -671,14 +819,25 @@ def popular(response: Response = None):
 @app.get("/api/recommended")
 def recommended(response: Response = None):
     def _recommended():
-        komiku_items = api.recommended()
-        # kiryuu tidak punya /recommended, tapi kita bisa ambil dari home()
-        try:
-            kiryuu_items = kiryuu.home(1).get('items', [])[:20]
-        except Exception as e:
-            log.warning("kiryuu.home(recommended) gagal: %s", e)
-            kiryuu_items = []
-        return _merge_items(komiku_items, kiryuu_items)
+        def _komiku():
+            try:
+                return api.recommended()
+            except Exception as e:
+                log.warning("komiku.recommended() gagal: %s", e)
+                return None
+
+        def _kiryuu():
+            # kiryuu tidak punya /recommended, tapi kita bisa ambil dari home()
+            try:
+                return kiryuu.home(1).get('items', [])[:20]
+            except Exception as e:
+                log.warning("kiryuu.home(recommended) gagal: %s", e)
+                return []
+
+        komiku_items, kiryuu_items = _parallel(_komiku, _kiryuu)
+        if komiku_items is None and not kiryuu_items:
+            raise requests.RequestException("recommended: kedua upstream gagal")
+        return _merge_items(komiku_items or [], kiryuu_items or [])
 
     data = cached("recommended", _recommended, ttl=3600)
     _edge_cache(response, s_maxage=600, swr=3600)
@@ -699,67 +858,103 @@ def colored(response: Response = None):
 @app.get("/api/detail/{slug}")
 def detail(slug: str, response: Response = None):
     def _detail():
-        komiku_d = api.detail(slug)
-        # Merge kiryuu detail jika tersedia
-        try:
-            kiryuu_d = kiryuu.detail(slug)
-            # Ambil chapter dari sumber dengan lebih banyak chapter
-            k_ch = komiku_d.get('chapters') or []
-            kiryuu_ch = kiryuu_d.get('chapters') or []
-            if len(kiryuu_ch) > len(k_ch):
-                komiku_d['chapters'] = kiryuu_ch
-                komiku_d['total_chapters'] = len(kiryuu_ch)
-            # Ambil rating dari sumber yang punya rating lebih tinggi
-            k_rating = komiku_d.get('rating') or ''
-            kiryuu_rating = kiryuu_d.get('rating') or ''
-            if kiryuu_rating and not k_rating:
-                komiku_d['rating'] = kiryuu_rating
-            # Tambahkan info kiryuu jika komiku kosong
-            for key in ('author', 'status', 'genre'):
-                if not komiku_d.get(key) and kiryuu_d.get(key):
-                    komiku_d[key] = kiryuu_d[key]
-            # Tambahkan alt title kiryuu jika komiku kosong
-            if not komiku_d.get('alt_title') and kiryuu_d.get('alt_title'):
-                komiku_d['alt_title'] = kiryuu_d['alt_title']
-            # Tambahkan similar dari kiryuu jika komiku kosong
-            if not komiku_d.get('similar') and kiryuu_d.get('similar'):
-                komiku_d['similar'] = kiryuu_d['similar']
-        except Exception as e:
-            log.warning("kiryuu.detail(%s) gagal: %s", slug, e)
-        return komiku_d
+        def _komiku():
+            try:
+                return (api.detail(slug), 0)
+            except requests.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 502
+                return (None, code)
+            except requests.RequestException:
+                return (None, 502)
+
+        def _kiryuu():
+            try:
+                return (kiryuu.detail(slug), 0)
+            except Exception as e:
+                log.warning("kiryuu.detail(%s) gagal: %s", slug, e)
+                return (None, 502)
+
+        (komiku_d, komiku_err), (kiryuu_d, kiryuu_err) = _parallel(_komiku, _kiryuu)
+        if komiku_d:
+            if kiryuu_d:
+                # Ambil chapter dari sumber dengan lebih banyak chapter
+                k_ch = komiku_d.get('chapters') or []
+                kiryuu_ch = kiryuu_d.get('chapters') or []
+                if len(kiryuu_ch) > len(k_ch):
+                    komiku_d['chapters'] = kiryuu_ch
+                    komiku_d['total_chapters'] = len(kiryuu_ch)
+                # Ambil rating dari sumber yang punya rating lebih tinggi
+                k_rating = komiku_d.get('rating') or ''
+                kiryuu_rating = kiryuu_d.get('rating') or ''
+                if kiryuu_rating and not k_rating:
+                    komiku_d['rating'] = kiryuu_rating
+                # Tambahkan info kiryuu jika komiku kosong
+                for key in ('author', 'status', 'genre'):
+                    if not komiku_d.get(key) and kiryuu_d.get(key):
+                        komiku_d[key] = kiryuu_d[key]
+                # Tambahkan alt title kiryuu jika komiku kosong
+                if not komiku_d.get('alt_title') and kiryuu_d.get('alt_title'):
+                    komiku_d['alt_title'] = kiryuu_d['alt_title']
+                # Tambahkan similar dari kiryuu jika komiku kosong
+                if not komiku_d.get('similar') and kiryuu_d.get('similar'):
+                    komiku_d['similar'] = kiryuu_d['similar']
+            return komiku_d
+        if kiryuu_d and (kiryuu_d.get('title') or kiryuu_d.get('chapters')):
+            # Fallback penuh: komiku gagal tapi kiryuu punya data lengkap
+            # (bentuk respons sama). Halaman tetap tampil saat upstream
+            # komiku flaky — jangan buang hasil kiryuu yang sehat.
+            kiryuu_d['source'] = 'kiryuu'
+            if not kiryuu_d.get('similar'):
+                kiryuu_d['similar'] = _similar_from_kiryuu_genre(kiryuu, kiryuu_d, slug)
+            return kiryuu_d
+        # Keduanya tanpa data: komiku 404 = otoritatif tidak ada (404);
+        # selain itu upstream error (502 via cached(), dapat stale bila ada).
+        if komiku_err == 404:
+            raise HTTPException(status_code=404, detail="komik tidak ditemukan")
+        raise requests.RequestException(
+            f"upstream detail error (komiku={komiku_err}, kiryuu={kiryuu_err})")
 
     data = cached(f"detail_{slug}", _detail, ttl=1800)
     _edge_cache(response, s_maxage=600, swr=1800)
     return data
 
 @app.get("/api/chapter/{slug}/{chapter}", response_model=List[str])
-def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+(-\d+)?$'), response: Response = None):
+def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), response: Response = None):
     key = f"chap_{slug}_{chapter}"
-    hit = get_cache(key)
-    if hit is not None:
-        _edge_cache(response, s_maxage=900, swr=3600, browser=300)
-        return hit
-    # Coba komiku dulu, lalu fallback ke kiryuu
-    try:
-        images = api.chapter(slug, chapter)
-    except requests.HTTPError as e:
-        code = e.response.status_code if e.response is not None else 502
-        if code == 404:
-            images = []
-        else:
-            images = []
-    except requests.RequestException:
-        images = []
-    if not images:
-        try:
-            images = kiryuu.chapter_images(slug, chapter)
-        except Exception:
-            images = []
-    if not images:
-        raise HTTPException(status_code=404, detail="chapter tidak ditemukan")
-    set_cache(key, images)
+
+    def _chapter():
+        # Race paralel: komiku diutamakan (urutan lama), kiryuu fallback bila
+        # komiku kosong. Waktu tunggu = sisi tercepat, bukan jumlah keduanya.
+        def _komiku():
+            try:
+                return (api.chapter(slug, chapter), 0)
+            except requests.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 502
+                return ([], code)
+            except requests.RequestException:
+                return ([], 502)
+
+        def _kiryuu():
+            try:
+                return (kiryuu.chapter_images(slug, chapter), 0)
+            except Exception:
+                return ([], 502)
+
+        (komiku_images, komiku_err), (kiryuu_images, kiryuu_err) = _parallel(_komiku, _kiryuu)
+        images = komiku_images or kiryuu_images
+        if images:
+            return images
+        # Kosong dari kedua sisi: komiku 404 = otoritatif tidak ada (404);
+        # selain itu upstream error (RequestException agar cached() melayani
+        # stale bila ada, atau 502 — jangan samarkan jadi 404).
+        if komiku_err == 404:
+            raise HTTPException(status_code=404, detail="chapter tidak ditemukan")
+        raise requests.RequestException(
+            f"upstream chapter error (komiku={komiku_err}, kiryuu={kiryuu_err})")
+
+    data = cached(key, _chapter, ttl=3600)
     _edge_cache(response, s_maxage=900, swr=3600, browser=300)
-    return images
+    return data
 
 # --- IMAGE PROXY (cover, optimized) ---
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
@@ -780,6 +975,10 @@ IMAGE_CACHE_MAX_BYTES = int(os.environ.get('IMAGE_CACHE_MAX_BYTES', '268435456')
 
 _IMG_LOCK = threading.Lock()
 _AVIF_OK = None
+# Throttle evict: scan direktori bisa lambat bila ribuan file, jadi evict
+# maksimal 1x per interval walau puluhan gambar ditulis beruntun.
+_IMG_EVICT_LAST = 0.0
+_IMG_EVICT_INTERVAL = 30.0
 
 
 def _avif_supported():
@@ -829,12 +1028,20 @@ def _img_cache_put(key, data):
             fh.write(data)
         with _IMG_LOCK:
             os.replace(tmp, path)
-            _img_evict()
     except OSError:
         try:
             os.remove(tmp)
         except OSError:
             pass
+        return
+    # Evict di LUAR lock tulis: scan+stat direktori tidak boleh menahan
+    # writer lain. Throttle 30 dtk supaya burst (mis. 20 gambar chapter)
+    # tidak memicu 20x scan direktori.
+    global _IMG_EVICT_LAST
+    now = time.time()
+    if now - _IMG_EVICT_LAST >= _IMG_EVICT_INTERVAL:
+        _IMG_EVICT_LAST = now
+        _img_evict()
 
 
 def _img_evict():
@@ -937,6 +1144,14 @@ def _img_fetch(url):
     # Referer per-request berdasarkan host sumber (bukan mutasi session bersama).
     low = url.lower()
     referer = 'https://v7.kiryuu.to/' if ('kiryuu.to' in low or 'yuucdn.com' in low) else 'https://komiku.org/'
+    host = urlparse(url).hostname or '?'
+
+    def _fail(client_msg, log_msg):
+        # Log host + sebab agar "banyak 502" terdiagnosis dari server.log
+        # tanpa harus mereproduksi; pesan ke klien tetap generik.
+        log.warning("img upstream %s gagal: %s", host, log_msg)
+        raise HTTPException(status_code=502, detail=client_msg)
+
     session = _img_session()
     lock = _img_source_lock(src_key)
     try:
@@ -948,28 +1163,29 @@ def _img_fetch(url):
                 req = retry_get(session, url, timeout=(5, 15), stream=True,
                                 headers={'Referer': referer})
                 if req is None or req.status_code != 200:
+                    code = req.status_code if req is not None else None
                     if req is not None:
                         req.close()
-                    raise HTTPException(status_code=502, detail="upstream unavailable")
+                    _fail("upstream unavailable", f"status {code}")
                 ctype = req.headers.get('Content-Type', '').split(';')[0].strip().lower()
                 if not ctype.startswith('image/'):
                     req.close()
-                    raise HTTPException(status_code=502, detail="not an image")
+                    _fail("not an image", f"content-type {ctype or 'none'}")
                 chunks, total = [], 0
                 for chunk in req.iter_content(chunk_size=65536):
                     total += len(chunk)
                     if total > IMAGE_MAX_BYTES:
                         req.close()
-                        raise HTTPException(status_code=502, detail="image too large")
+                        _fail("image too large", f">{IMAGE_MAX_BYTES} bytes")
                     chunks.append(chunk)
                 req.close()
                 data = b''.join(chunks)
                 if not data:
-                    raise HTTPException(status_code=502, detail="empty image")
+                    _fail("empty image", "0 bytes")
             except HTTPException:
                 raise
-            except requests.RequestException:
-                raise HTTPException(status_code=502, detail="upstream error")
+            except requests.RequestException as e:
+                _fail("upstream error", type(e).__name__)
             _img_cache_put(src_key, data)
             return data, ctype
     finally:
@@ -1167,4 +1383,7 @@ def _serve_index():
 # --- RUN ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # 2 worker: endpoint sync + upstream lambat membuat 1 worker mudah macet
+    # antrean. Naikkan ke 4 bila RAM longgar (WORKERS=4).
+    workers = int(os.environ.get("WORKERS", 2))
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=workers)
