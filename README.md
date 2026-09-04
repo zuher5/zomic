@@ -117,6 +117,16 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/img?url=&w=&format=&q=` | Proxy cover ter-optimasi (resize + AVIF/WebP/JPEG + cache) |
 | `/health` | Status server + katalog |
 
+### Sumber chapter (`/api/chapter`)
+
+Urutan: **kiryuu dulu → komiku fallback**. Slug komiku tidak selalu ada di
+kiryuu, jadi slug kiryuu di-resolve dari judul (`kiryuu.search` + cache
+`kiryuu_slug_*`, TTL 1 hari). Sisi komiku memakai slug namespace
+`baca-chapter` yang otoritatif dari `apiLink` tiap chapter di JSON detail
+(mis. listing `manga-one-punch-man` → baca `one-punch-man`), di-cache
+`baca_slug_*` TTL 7 hari — memanggil `baca-chapter` dengan slug listing
+menghasilkan HTTP 500 dari API pihak ketiga.
+
 ## Image Proxy
 
 ### Legacy (`/api/img?url=ORIGINAL`)

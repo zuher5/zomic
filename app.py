@@ -103,6 +103,13 @@ def set_cache(key, data, ttl=3600):
 # negatif 1 hari (keputusan "portrait tidak ditemukan" tidak disimpan lama).
 PORTRAIT_POS_TTL = 604800
 PORTRAIT_NEG_TTL = 86400
+# Chapter memakai slug namespace berbeda dari detail/listing. Peta
+# listing-slug -> baca-slug stabil per manga (umur panjang); detail-JSON
+# mentah dipakai ulang agar path chapter tidak fetch detail dua kali;
+# slug kiryuu hasil resolve tidak berubah-ubah (umur sedang).
+BACA_SLUG_TTL = 604800
+DETAIL_JSON_TTL = 1800
+KIRYUU_SLUG_TTL = 86400
 # Upstream komiku mengirim updateTime bahasa Indonesia ("24 menit lalu").
 # Kanonik disimpan & disajikan EN ("24 min ago") — satu titik konversi agar
 # label frontend dan parser NEW (updMin) konsisten.
@@ -279,6 +286,40 @@ class KomikuAPI:
             'chapters': chapters,
             'total_chapters': len(chapters),
         }
+
+    def _detail_json(self, slug):
+        """JSON mentah /detail-komik, di-cache agar path chapter tidak
+        memanggil detail dua kali. {} bila upstream gagal (caller degradasi)."""
+        key = f"detail_json_{slug}"
+        hit = get_cache(key)
+        if hit is not None:
+            return hit
+        d = self._get(f"/detail-komik/{slug}")
+        if isinstance(d, dict):
+            set_cache(key, d, DETAIL_JSON_TTL)
+            return d
+        return {}
+
+    def _baca_slug(self, slug):
+        """Slug namespace baca-chapter yang benar, otoritatif dari apiLink
+        tiap chapter di JSON detail (mis. listing 'manga-one-punch-man' ->
+        baca 'one-punch-man'). '' bila detail gagal / tak ada apiLink.
+        '' tidak di-cache agar transient bisa retry di request berikut."""
+        key = f"baca_slug_{slug}"
+        hit = get_cache(key)
+        if hit:
+            return hit
+        try:
+            d = self._detail_json(slug)
+        except Exception:
+            return ''
+        for ch in ((d or {}).get('chapters') or []):
+            m = re.match(r'/?baca-chapter/([^/]+)/', ch.get('apiLink') or '')
+            if m:
+                s = m.group(1)
+                set_cache(key, s, BACA_SLUG_TTL)
+                return s
+        return ''
 
     @staticmethod
     def _card(item):
@@ -468,7 +509,13 @@ class KomikuAPI:
         return urls
 
     def chapter(self, slug, chapter):
-        data = self._get(f"/baca-chapter/{slug}/{chapter}")
+        # baca-chapter memakai slug namespace chapter (berbeda dari slug
+        # listing/detail). Resolve otoritatif dari apiLink di JSON detail.
+        # Tanpa baca-slug -> [] agar route turun ke fallback berikutnya.
+        baca = self._baca_slug(slug)
+        if not baca:
+            return []
+        data = self._get(f"/baca-chapter/{baca}/{chapter}")
         return self._extract_images(data)
 
 
@@ -603,6 +650,49 @@ def cached(key, producer, ttl=3600, stale_ttl=21600):
         raise HTTPException(status_code=502, detail="upstream error")
     set_cache(key, data, ttl)
     return data
+
+
+def _norm_title(t):
+    """Kanonik judul untuk pencocokan lintas sumber (lower, tanpa non-alnum)."""
+    return re.sub(r'[^a-z0-9]', '', (t or '').lower())
+
+
+def _resolve_kiryuu_slug(title, exclude=''):
+    """Slug kiryuu terbaik untuk sebuah judul komik (via kiryuu.search).
+
+    Slug komiku tidak selalu ada di kiryuu (mis. 'manga-one-punch-man'
+    tidak cocok di v7.kiryuu.to), jadi cocokkan dari judul. '' bila tak
+    ketemu; hasil (termasuk negatif) di-cache agar tidak search tiap request.
+    """
+    title = (title or '').strip()
+    if not title:
+        return ''
+    key = f"kiryuu_slug_{title.lower()}"
+    hit = get_cache(key)
+    if hit is not None:
+        return hit
+    out = ''
+    try:
+        res = kiryuu.search(title)
+        items = (res or {}).get('items') or []
+        norm = _norm_title(title)
+        for it in items:
+            s = (it or {}).get('slug') or ''
+            if not s or s == exclude:
+                continue
+            if _norm_title((it or {}).get('title') or '') == norm:
+                out = s
+                break
+        if not out:
+            for it in items:
+                s = (it or {}).get('slug') or ''
+                if s and s != exclude:
+                    out = s
+                    break
+    except Exception:
+        out = ''
+    set_cache(key, out, KIRYUU_SLUG_TTL)
+    return out
 
 
 def _edge_cache(response: Response, s_maxage: int, browser: int = 60, swr: int | None = None):
@@ -923,8 +1013,32 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
     key = f"chap_{slug}_{chapter}"
 
     def _chapter():
-        # Race paralel: komiku diutamakan (urutan lama), kiryuu fallback bila
-        # komiku kosong. Waktu tunggu = sisi tercepat, bukan jumlah keduanya.
+        # kiryuu DIUTAMAKAN (paling stabil dari cloud). Slug mentah dicoba
+        # dulu (judul yang sama di kedua sumber); bila kosong, resolve slug
+        # kiryuu dari judul komiku. komiku (apiLink benar) jadi fallback.
+        # Judul diambil dari detail-JSON cache (1 fetch, dipakai ulang);
+        # race paralel di bawah menutup selisih waktu kedua sumber.
+        try:
+            dj = api._detail_json(slug)
+        except Exception:
+            dj = {}
+        title = (dj.get('title') or '') if isinstance(dj, dict) else ''
+
+        def _kiryuu():
+            try:
+                imgs = kiryuu.chapter_images(slug, chapter)
+                if imgs:
+                    return (imgs, 0)
+            except Exception:
+                pass
+            kslug = _resolve_kiryuu_slug(title, exclude=slug) if title else ''
+            if kslug:
+                try:
+                    return (kiryuu.chapter_images(kslug, chapter), 0)
+                except Exception:
+                    pass
+            return ([], 502)
+
         def _komiku():
             try:
                 return (api.chapter(slug, chapter), 0)
@@ -934,14 +1048,8 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
             except requests.RequestException:
                 return ([], 502)
 
-        def _kiryuu():
-            try:
-                return (kiryuu.chapter_images(slug, chapter), 0)
-            except Exception:
-                return ([], 502)
-
-        (komiku_images, komiku_err), (kiryuu_images, kiryuu_err) = _parallel(_komiku, _kiryuu)
-        images = komiku_images or kiryuu_images
+        (kiryuu_images, kiryuu_err), (komiku_images, komiku_err) = _parallel(_kiryuu, _komiku)
+        images = kiryuu_images or komiku_images
         if images:
             return images
         # Kosong dari kedua sisi: komiku 404 = otoritatif tidak ada (404);
