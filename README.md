@@ -15,7 +15,7 @@ gambar ter-proxy (lolos hotlink protection).
 - Favorit, riwayat baca, penanda chapter sudah dibaca (tersimpan di browser via localStorage)
 - Filter tipe (manga/manhwa/manhua) & huruf awal A–Z
 - Tema gelap/terang
-- Proxy gambar ter-batas: hanya host `*.komiku.org`, `*.komiku.id`, dan `*.komiku.to` yang diizinkan (anti-SSRF)
+- Proxy gambar ter-batas: hanya host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, dan `*.uqni.net` yang diizinkan (anti-SSRF)
 
 ## Struktur
 
@@ -113,7 +113,7 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/colored` | Komik berwarna |
 | `/api/detail/{slug}` | Detail komik + chapter |
 | `/api/chapter/{slug}/{chapter}` | Daftar URL gambar (array) |
-| `/api/img?url=` | Proxy gambar legacy (allowlist `*.komiku.org` / `*.komiku.id`) |
+| `/api/img?url=` | Proxy gambar legacy (allowlist `*.komiku.org` / `*.komiku.id` / `*.komiku.to` / `*.kiryuu.to` / `*.yuucdn.com` / `*.uqni.net`) |
 | `/api/img?url=&w=&format=&q=` | Proxy cover ter-optimasi (resize + AVIF/WebP/JPEG + cache) |
 | `/health` | Status server + katalog |
 
@@ -141,7 +141,7 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 - `w`: integer 120–800 (tidak pernah upscale).
 - `q`: integer 45–95.
 - `format`: `auto` (AVIF → WebP → JPEG sesuai `Accept`), `original`, `webp`, `avif`.
-- Hanya host `*.komiku.org`, `*.komiku.id`, dan `*.komiku.to` (tolak localhost/private IP/SSRF).
+- Hanya host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, dan `*.uqni.net` (tolak localhost/private IP/SSRF).
 - Batas download 12 MB dan batas dimensi 25 MP (anti decompression bomb).
 - Cache disk `SHA-256` (url + w + format + q), atomic write, evict tertua saat
   melebihi batas, header `Cache-Control: public, max-age=2592000, immutable`.
@@ -240,7 +240,7 @@ Render.com tidak dipakai dan konfigurasinya (`render.yaml`) telah dihapus.
 
 ## Keamanan
 
-- `/api/img` hanya memproxy host yang berakhiran `komiku.org`, `komiku.id`, atau `komiku.to` (subdomain sesuai, suffix exact match → host seperti `komiku.org.evil.com` ditolak).
+- `/api/img` hanya memproxy host yang berakhiran `komiku.org`, `komiku.id`, `komiku.to`, `kiryuu.to`, `yuucdn.com`, atau `uqni.net` (subdomain sesuai, suffix exact match → host seperti `komiku.org.evil.com` ditolak).
   URL ke IP internal (`169.254.*`, `localhost`, alamat LAN) tidak lolos allowlist →
   mencegah SSRF. Scheme selain `http/https` ditolak.
 - Download dibatasi (12 MB) dan dimensi dibatasi (25 MP) untuk mencegah

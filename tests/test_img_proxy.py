@@ -54,6 +54,7 @@ class ImageProxyTest(unittest.TestCase):
         self.assertEqual(c.get('/api/img', params={'url': 'http://127.0.0.1/x.png'}).status_code, 403)
         self.assertEqual(c.get('/api/img', params={'url': 'http://169.254.169.254/x.png'}).status_code, 403)
         self.assertEqual(c.get('/api/img', params={'url': 'https://komiku.org.evil.com/x.png'}).status_code, 403)
+        self.assertEqual(c.get('/api/img', params={'url': 'https://uqni.net.evil.com/x.png'}).status_code, 403)
         self.assertEqual(c.get('/api/img', params={'url': 'http://img.komiku.org/a.png', 'w': 50}).status_code, 422)
         self.assertEqual(c.get('/api/img', params={'url': 'http://img.komiku.org/a.png', 'w': 900}).status_code, 422)
         self.assertEqual(c.get('/api/img', params={'url': 'http://img.komiku.org/a.png', 'q': 10}).status_code, 422)
@@ -71,6 +72,12 @@ class ImageProxyTest(unittest.TestCase):
     def test_thumbnail_to_host_is_allowed(self):
         with self._fetch(WEBP_SRC):
             r = self.client.get('/api/img', params={'url': 'https://thumbnail.komiku.to/new/cover.webp'})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers['content-type'], 'image/webp')
+
+    def test_uqni_cdn_host_is_allowed(self):
+        with self._fetch(WEBP_SRC):
+            r = self.client.get('/api/img', params={'url': 'https://cdn.uqni.net/users/7/2026/08/000-899706.webp'})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers['content-type'], 'image/webp')
 

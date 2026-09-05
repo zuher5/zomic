@@ -29,7 +29,10 @@ class ApiRoutesTest(unittest.TestCase):
         self.assertTrue(allowed("img.komiku.org"))
         self.assertTrue(allowed("komiku.org"))
         self.assertTrue(allowed("thumbnail.komiku.org:443"))
+        self.assertTrue(allowed("cdn.uqni.net"))
+        self.assertTrue(allowed("uqni.net"))
         self.assertFalse(allowed("komiku.org.evil.com"))
+        self.assertFalse(allowed("uqni.net.evil.com"))
         self.assertFalse(allowed("notkomiku.org"))
         self.assertFalse(allowed(None))
 
