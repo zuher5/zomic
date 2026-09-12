@@ -12,4 +12,6 @@ requests>=2.31,<3.0
 Pillow>=10.0,<13.0
 # Wajib untuk TestClient (starlette >= 0.37 memakai httpx2, bukan httpx):
 # tanpa ini 'python -m unittest discover -s tests' gagal saat fresh install.
-httpx2>=0.27,<1.0
+# Catatan: httpx2 adalah fork httpx yang pecatuan nomor versinya mulai 2.x,
+# bukan 0.x — rentang >=2.0,<3.0 (0.27/0.28 di atasnya = 2.0/2.4).
+httpx2>=2.0,<3.0
