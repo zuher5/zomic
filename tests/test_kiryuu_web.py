@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from kiryuu_web import KiryuuWeb, _clean_chapter_num, _clean_slug, _rating_float, _text
+from kiryuu_web import KiryuuWeb, _clean_chapter_num, _clean_slug, _humanize_slug, _rating_float, _text
 
 
 # ---------- HTML FIXTURES ----------
@@ -186,6 +186,13 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(_clean_chapter_num('12-5'), '12-5')
         self.assertEqual(_clean_chapter_num(''), '')
 
+    def test_humanize_slug(self):
+        self.assertEqual(_humanize_slug('jungle-juice'), 'Jungle Juice')
+        self.assertEqual(_humanize_slug('one-punch-man'), 'One Punch Man')
+        self.assertEqual(_humanize_slug('solo_leveling'), 'Solo Leveling')
+        self.assertEqual(_humanize_slug(''), '')
+        self.assertEqual(_humanize_slug(None), '')
+
 
 class TestParseCard(unittest.TestCase):
     def test_parse_card_from_block(self):
@@ -213,6 +220,19 @@ class TestParseCard(unittest.TestCase):
         self.assertIsNotNone(card)
         self.assertEqual(card['slug'], 'test-slug')
         self.assertEqual(card['cover'], '')
+
+    def test_parse_card_fallback_title_humanized(self):
+        # Listing tanpa elemen judul: slug jangan bocor mentah ke tampilan.
+        html = '''
+        <a color="primary" class="w-full h-full" href="https://v7.kiryuu.to/manga/jungle-juice/">
+          <img src="https://v7.kiryuu.to/wp-content/uploads/2021/03/Jungle-Juice.jpg"
+               class="h-full object-cover wp-post-image" alt="Jungle Juice" />
+        </a>
+        <div class="numscore">8.10</div>
+        '''
+        card = KiryuuWeb._parse_card_from_block(html)
+        self.assertIsNotNone(card)
+        self.assertEqual(card['title'], 'Jungle Juice')
 
 
 class TestParseListing(unittest.TestCase):

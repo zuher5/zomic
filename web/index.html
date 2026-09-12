@@ -837,6 +837,13 @@ async function api(path) {
   }
   return res.json();
 }
+// Judul ramah sebagai fallback saat detail gagal dimuat; slug di-break
+// jadi kata dan di-Title-Case ('jungle-juice' -> 'Jungle Juice').
+function humanTitle(slug) {
+  return String(slug || '')
+    .replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/\b[a-z]/g, c => c.toUpperCase());
+}
 const empty = (title, note = '') => `<div class="state">
   <p class="label">${esc(title)}</p>${note ? `<p>${esc(note)}</p>` : ''}</div>`;
 function fail(e) {
@@ -1314,7 +1321,7 @@ async function pageReader(slug, ch) {
     const i = chapters.findIndex(c => String(c.ch) === String(ch));
     const prev = i > 0 ? chapters[i - 1] : null;
     const next = i >= 0 && i < chapters.length - 1 ? chapters[i + 1] : null;
-    const title = detail?.title || slug;
+    const title = detail?.title || humanTitle(slug);
     markRead(slug, ch);
     if (detail) pushHistory({ slug, ch, title, cover: detail.cover || '', pos: i >= 0 ? i + 1 : 0, total: chapters.length });
 

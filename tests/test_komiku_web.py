@@ -94,6 +94,25 @@ class CatalogParseTest(unittest.TestCase):
         self.assertIn("tipe=manhwa", url)
         self.assertIn("huruf=A", url)
 
+    def test_catalog_fallback_title_humanized(self):
+        # Kartu tanpa <h4>: slug drain dulu ke '<h4>' tidak ada, judul harus
+        # jadi 'Jungle Juice', bukan 'jungle-juice'.
+        page = """
+        <div class="page-info">(7,619 komik)</div>
+        <div class="manga-grid">
+          <article class="manga-card">
+            <a href="/manga/jungle-juice/">
+              <img class="lazy" data-src="https://thumbnail.komiku.org/img/j.jpg" alt="Jungle Juice">
+            </a>
+            <div><p class="meta">Manhua &bull; Action<br>Status: Ongoing</p></div>
+          </article>
+        </div>
+        """
+        with self.fetch(page):
+            d = self.web.catalog(1)
+        self.assertEqual(d["items"][0]["title"], "Jungle Juice")
+        self.assertEqual(d["items"][0]["slug"], "jungle-juice")
+
     def test_catalog_rejects_unknown_type(self):
         with patch.object(KomikuWeb, "_fetch", return_value=CARD_PAGE) as f:
             self.web.catalog(1, ctype="bogus")
@@ -115,6 +134,25 @@ class CatalogParseTest(unittest.TestCase):
         with patch.object(KomikuWeb, "_fetch") as f:
             self.assertEqual(self.web.search("  ")["items"], [])
         f.assert_not_called()
+
+    def test_search_fallback_title_humanized(self):
+        # Blok .bge tanpa <h3>: tangkap slug-nya sebagai judul ramah.
+        page = """
+        <div class="bge">
+          <div class="bgei">
+            <a href="/manga/jungle-juice/">
+              <img src="https://thumbnail.komiku.org/img/j.jpg" class="lazy">
+              <div class="tpe1_inf"><b>Manhua</b> Action</div>
+            </a>
+          </div>
+          <div class="kan">
+            <div class="new1"><a href="/x-chapter-1/"><span>Terbaru: </span><span>Chapter 1</span></a></div>
+          </div>
+        </div>
+        """
+        with self.fetch(page):
+            d = self.web.search("jungle", 1)
+        self.assertEqual(d["items"][0]["title"], "Jungle Juice")
 
     def test_genre_sanitizes_slug(self):
         with patch.object(KomikuWeb, "_fetch", return_value=BGE_PAGE) as f:

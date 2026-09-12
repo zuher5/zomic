@@ -31,6 +31,14 @@ RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.35
 
 
+def _humanize_slug(s):
+    """Jadikan slug (mis. 'jungle-juice') tampil ramah: 'Jungle Juice'.
+
+    Dipakai sebagai judul fallback bila HTML upstream tidak memuat judul asli.
+    """
+    return (s or '').replace('-', ' ').replace('_', ' ').strip().title()
+
+
 def _retry_delay(resp, i, base_delay):
     """Jeda sebelum attempt berikutnya.
 
@@ -285,7 +293,7 @@ class KomikuWeb:
                 genre = normalize_genre(parts[1])
             items.append({
                 'slug': slug_m.group(1),
-                'title': _text(title_m.group(1)) if title_m else slug_m.group(1),
+                'title': _text(title_m.group(1)) if title_m else _humanize_slug(slug_m.group(1)),
                 'cover': cover,
                 'type': ctype,
                 'genre': genre,
@@ -310,7 +318,7 @@ class KomikuWeb:
             chapters = dict(_CHAP.findall(right))
             items.append({
                 'slug': slug_m.group(1),
-                'title': _text(title_m.group(1)) if title_m else slug_m.group(1),
+                'title': _text(title_m.group(1)) if title_m else _humanize_slug(slug_m.group(1)),
                 'cover': cover,
                 'type': _text(tinf.group(1)) if tinf else '',
                 'genre': normalize_genre(_text(tinf.group(2)) if tinf else ''),

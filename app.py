@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from PIL import Image, features
 
 from komiku_web import KomikuWeb, retry_get, genre_name, normalize_genre
-from kiryuu_web import KiryuuWeb
+from kiryuu_web import KiryuuWeb, _humanize_slug
 
 log = logging.getLogger("zomic")
 
@@ -270,7 +270,7 @@ class KomikuAPI:
             similar = self._resolve_portrait(similar)
 
         return {
-            'title': d.get('title', slug),
+            'title': d.get('title') or _humanize_slug(slug),
             'slug': d.get('slug') or slug,
             'alt_title': d.get('alternativeTitle') or info.get('Judul Alternatif', ''),
             'sinopsis': d.get('sinopsis') or d.get('description') or '-',

@@ -86,6 +86,13 @@ def _rating_float(r):
     except (TypeError, ValueError):
         return 0.0
 
+def _humanize_slug(s):
+    """Jadikan slug (mis. 'jungle-juice') tampil ramah: 'Jungle Juice'.
+
+    Dipakai sebagai judul fallback bila HTML upstream tidak memuat judul asli.
+    """
+    return (s or '').replace('-', ' ').replace('_', ' ').strip().title()
+
 def _clean_slug(href):
     """Ekstrak slug manga dari href kiryuu. /manga/{slug}/ → slug"""
     m = re.search(r'/manga/([a-z0-9\-]+)/', href or '')
@@ -253,7 +260,7 @@ class KiryuuWeb:
 
         # Title: coba h1 dulu, lalu h4
         title_m = _CARD_TITLE_H1.search(block) or _CARD_TITLE_H4.search(block)
-        title = _text(title_m.group(1)) if title_m else slug
+        title = _text(title_m.group(1)) if title_m else _humanize_slug(slug)
 
         # Rating
         rating_m = _CARD_RATING.search(block)
@@ -479,7 +486,7 @@ class KiryuuWeb:
                 cover = og_m.group(1)
 
         # Title
-        title = ld.get('name', '') or ld.get('headline', '') or slug
+        title = ld.get('name', '') or ld.get('headline', '') or _humanize_slug(slug)
 
         # Alt title
         alt_names = ld.get('alternateName', '')
