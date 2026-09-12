@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from kiryuu_web import KiryuuWeb, _clean_chapter_num, _clean_slug, _text
+from kiryuu_web import KiryuuWeb, _clean_chapter_num, _clean_slug, _rating_float, _text
 
 
 # ---------- HTML FIXTURES ----------
@@ -327,6 +327,46 @@ class TestDedupe(unittest.TestCase):
 
     def test_dedupe_empty(self):
         self.assertEqual(KiryuuWeb._dedupe([]), [])
+
+
+class TestPopular(unittest.TestCase):
+    def test_rating_float(self):
+        self.assertEqual(_rating_float('7.60'), 7.6)
+        self.assertEqual(_rating_float(''), 0.0)
+        self.assertEqual(_rating_float(None), 0.0)
+        self.assertEqual(_rating_float('abc'), 0.0)
+
+    def test_popular_falls_back_to_home_sorted_by_rating(self):
+        # /manga/list-mode/?order=popular 404/empty -> fallback ke home(1)
+        # yang di-sort rating desc.
+        web = KiryuuWeb()
+        web._fetch = lambda url, **kwargs: ''
+        home_items = [
+            {'slug': 'b', 'title': 'B', 'type': 'Manhua', 'rating': '7.60'},
+            {'slug': 'a', 'title': 'A', 'type': 'Manga', 'rating': '9.00'},
+            {'slug': 'c', 'title': 'C', 'type': 'Manga', 'rating': ''},
+            {'slug': 'a', 'title': 'A-dup', 'type': 'Manga', 'rating': '9.00'},
+        ]
+        with unittest.mock.patch.object(web, 'home', return_value={'items': home_items}):
+            items = web.popular()
+        self.assertEqual([i['slug'] for i in items], ['a', 'b', 'c'])
+
+    def test_popular_uses_list_mode_when_available(self):
+        # Bila list-mode populer hidup lagi, hasilnya dipakai langsung.
+        web = KiryuuWeb()
+        list_items = [{'slug': 'x', 'title': 'X', 'type': 'Manga', 'rating': '8.0'}]
+        web._fetch = lambda url, **kwargs: SEARCH_PAGE_HTML
+        with unittest.mock.patch.object(web, '_parse_listing', return_value=list_items), \
+             unittest.mock.patch.object(web, 'home', side_effect=AssertionError('harus tidak dipanggil')) as hm:
+            items = web.popular()
+        self.assertEqual(items, list_items)
+        hm.assert_not_called()
+
+    def test_popular_returns_empty_when_all_empty(self):
+        web = KiryuuWeb()
+        web._fetch = lambda url, **kwargs: ''
+        with unittest.mock.patch.object(web, 'home', return_value={'items': []}):
+            self.assertEqual(web.popular(), [])
 
 
 if __name__ == '__main__':

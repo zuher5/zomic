@@ -175,6 +175,44 @@ class ApiRoutesTest(unittest.TestCase):
         self.assertEqual(f(""), "")
         self.assertEqual(f("-"), "-")
 
+    def test_popular_falls_back_to_kiryuu_when_komiku_fails(self):
+        import requests as _req
+        kiryuu_items = [
+            {'slug': 'a', 'title': 'A', 'type': 'Manga', 'cover': ''},
+            {'slug': 'b', 'title': 'B', 'type': 'Manhwa', 'cover': ''},
+            {'slug': 'c', 'title': 'C', 'type': 'Manhua', 'cover': ''},
+        ]
+        with patch.object(app_module.api, 'popular',
+                          side_effect=_req.ConnectionError('boom')), \
+             patch.object(app_module.kiryuu, 'popular', return_value=kiryuu_items):
+            res = self.client.get('/api/popular')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(len(data), 3)
+        self.assertEqual([g['key'] for g in data], ['manga', 'manhwa', 'manhua'])
+        self.assertEqual(data[0]['items'][0]['slug'], 'a')
+        self.assertEqual(data[0]['items'][0]['source'], 'kiryuu')
+
+    def test_popular_empty_komiku_groups_kiryuu(self):
+        import requests as _req
+        with patch.object(app_module.api, 'popular', return_value=[]), \
+             patch.object(app_module.kiryuu, 'popular',
+                          return_value=[{'slug': 'x', 'title': 'X', 'type': 'manga', 'cover': ''}]):
+            res = self.client.get('/api/popular')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['key'], 'manga')
+        self.assertEqual(data[0]['title'], 'Manga Populer')
+        self.assertEqual(data[0]['items'][0]['slug'], 'x')
+
+    def test_popular_both_empty_becomes_502(self):
+        import requests as _req
+        with patch.object(app_module.api, 'popular',
+                          side_effect=_req.ConnectionError('boom')), \
+             patch.object(app_module.kiryuu, 'popular', return_value=[]):
+            self.assertEqual(self.client.get('/api/popular').status_code, 502)
+
 
 if __name__ == "__main__":
     unittest.main()

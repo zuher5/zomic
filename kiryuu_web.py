@@ -79,6 +79,13 @@ def _abs_url(url):
         return SITE + url
     return url if url.startswith(('http://', 'https://')) else ''
 
+def _rating_float(r):
+    """Rating kartu (string) -> float; non-numerik/None -> 0.0."""
+    try:
+        return float(str(r or ''))
+    except (TypeError, ValueError):
+        return 0.0
+
 def _clean_slug(href):
     """Ekstrak slug manga dari href kiryuu. /manga/{slug}/ → slug"""
     m = re.search(r'/manga/([a-z0-9\-]+)/', href or '')
@@ -619,9 +626,23 @@ class KiryuuWeb:
         return images
 
     def popular(self):
-        """Manga populer via /manga/list-mode/?order=popular."""
+        """Manga populer per tipe.
+
+        Endpoint /manga/list-mode/?order=popular kini 404 di v7.kiryuu.to.
+        Fallback: listing homepage kiryuu (terurut praktis by views — judul
+        populer tampil di atas), di-sort ulang rating desc supaya urutannya
+        konsisten antar tipe.
+        """
         try:
             raw = self._fetch(f"{SITE}/manga/list-mode/?order=popular", timeout=15)
         except requests.RequestException:
-            return []
-        return self._parse_listing(raw)
+            raw = ''
+        items = self._parse_listing(raw) if raw else []
+        if not items:
+            try:
+                items = self.home(1).get('items', [])
+            except requests.RequestException:
+                items = []
+            items = sorted(items, key=lambda c: _rating_float(c.get('rating')),
+                           reverse=True)
+        return self._dedupe(items)

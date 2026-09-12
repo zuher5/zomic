@@ -140,6 +140,25 @@ class ImageProxyTest(unittest.TestCase):
                                                     'w': 400, 'format': 'webp'})
         self.assertEqual(r.status_code, 502)
 
+    def test_oversized_source_rejected_before_load(self):
+        # Dimensi di header raksasa (> 25 MP) harus ditolak SEBELUM decompress:
+        # Image.load() tidak boleh dipanggil, supaya decompression bomb tidak
+        # sempat menghabiskan memori.
+        class FakeImg:
+            size = (100_000, 100_000)
+            load_called = False
+
+            def load(self):
+                FakeImg.load_called = True
+
+        with self._fetch(b'unused'), \
+             patch.object(self.app.Image, 'open', return_value=FakeImg()):
+            r = self.client.get('/api/img', params={'url': 'https://img.komiku.org/cover/x.png',
+                                                    'w': 400, 'format': 'webp'})
+        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.json()['detail'], 'image too large')
+        self.assertFalse(FakeImg.load_called)
+
 
 class FormatAutoVaryTest(unittest.TestCase):
     """format=auto memilih output dari header Accept → wajib Vary: Accept

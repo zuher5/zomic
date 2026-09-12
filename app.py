@@ -892,15 +892,30 @@ def popular(response: Response = None):
         komiku_groups, kiryuu_pop = _parallel(_komiku, _kiryuu)
         if komiku_groups is None and not kiryuu_pop:
             raise requests.RequestException("popular: kedua upstream gagal")
-        komiku_groups = komiku_groups or []
-        if kiryuu_pop:
+        if komiku_groups:
             # Merge kiryuu popular ke setiap grup komiku berdasarkan type
             for group in komiku_groups:
                 k_type = group['key']
                 matching = [c for c in kiryuu_pop if c.get('type', '').lower() == k_type]
                 if matching:
                     group['items'] = _merge_items(group['items'], matching)
-        return komiku_groups
+            return komiku_groups
+        # Komiku gagal/kosong (umum: DDoS-Guard) tapi kiryuu sehat → jangan
+        # buang data kiryuu. Kelompokkan per tipe dengan shape yang sama
+        # seperti grup komiku agar frontend (tabs Popular) tetap jalan.
+        out = []
+        seen = set()
+        for card in kiryuu_pop:
+            t = str(card.get('type') or '').lower()
+            if t not in ('manga', 'manhwa', 'manhua') or t in seen:
+                continue
+            seen.add(t)
+            matching = [c for c in kiryuu_pop if str(c.get('type') or '').lower() == t]
+            for c in matching:
+                c['source'] = 'kiryuu'
+                _en_item_genre(c)
+            out.append({'key': t, 'title': f"{t.title()} Populer", 'items': matching})
+        return out
 
     data = cached("popular", _popular, ttl=3600)
     _edge_cache(response, s_maxage=600, swr=3600)
@@ -1321,12 +1336,14 @@ def _pick_format(fmt, accept):
 def _process_image(data, width, eff_fmt, quality):
     try:
         img = Image.open(io.BytesIO(data))
+        w, h = img.size
+        if w <= 0 or h <= 0 or w * h > IMAGE_MAX_PIXELS:
+            raise HTTPException(status_code=502, detail="image too large")
         img.load()
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=502, detail="invalid image")
-    w, h = img.size
-    if w <= 0 or h <= 0 or w * h > IMAGE_MAX_PIXELS:
-        raise HTTPException(status_code=502, detail="image too large")
     if width and width < w:
         nh = max(1, int(round(h * width / w)))
         img = img.resize((width, nh), Image.LANCZOS)

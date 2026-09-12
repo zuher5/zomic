@@ -10,3 +10,6 @@ pydantic==2.12.5; sys_platform == "android"
 pydantic>=2.0,<3.0; sys_platform != "android"
 requests>=2.31,<3.0
 Pillow>=10.0,<13.0
+# Wajib untuk TestClient (starlette >= 0.37 memakai httpx2, bukan httpx):
+# tanpa ini 'python -m unittest discover -s tests' gagal saat fresh install.
+httpx2>=0.27,<1.0
