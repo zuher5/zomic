@@ -456,8 +456,21 @@ section.block{margin-top:var(--sp-6)}
 .actions .btn{min-height:44px}
 .actions .btn.primary{flex:1 1 200px}
 .actions .btn.icon{flex:0 0 48px;padding:0;align-self:stretch}
+/* tombol favorit: border --line hampir tak terlihat di latar hitam (night),
+   pakai --muted agar batas tombol jelas. */
+.actions button[data-fav]{border-color:var(--muted)}
 .syn{font-size:var(--t-body);color:var(--text);opacity:.9;white-space:pre-line}
 .syn.clamped{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
+/* Mobile detail: cover sudah di tengah (margin:0 auto) — samakan header teks
+   (judul/alt/meta/genre/aksi/fakta). Sinopsis & daftar chapter tetap rata kiri. */
+@media (max-width:599px){
+  .dhead .txt{text-align:center}
+  .dhead .dmeta{justify-content:center}
+  .genres{justify-content:center}
+  .dwrap > :first-child .actions{justify-content:center}
+  .dwrap > :first-child .actions .btn{flex:1 1 0;min-width:0}
+  .dwrap > :first-child .facts{text-align:center}
+}
 .syn-toggle{margin-top:var(--sp-2);font-size:var(--t-label);letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--accent);display:inline-flex;align-items:center;gap:.35em;cursor:pointer}
 .syn-toggle svg{transition:transform .25s ease}
 .syn-toggle.open svg{transform:rotate(180deg)}
@@ -711,8 +724,9 @@ const opt = (u, w, fmt = 'auto', q = 78) => {
   return IMG(base) + `&w=${w}&format=${fmt}&q=${q}`;
 };
 const srcset = u => `${opt(u, 240)} 240w, ${opt(u, 400)} 400w, ${opt(u, 800)} 800w`;
-const coverImg = (u, w, sizes, eager = false) => u
-  ? `<img data-cover ${eager ? '' : 'loading="lazy"'} decoding="async" src="${opt(u, w)}" srcset="${srcset(u)}" sizes="${sizes}" alt="" onerror="this.remove()">`
+const coverImg = (u, w, sizes, eager = false, prio = false) => u
+  ? `<img data-cover ${eager ? '' : 'loading="lazy"'} decoding="async"
+      ${prio ? 'fetchpriority="high"' : ''} src="${opt(u, w)}" srcset="${srcset(u)}" sizes="${sizes}" alt="" onerror="this.remove()">`
   : '';
 /* sizes mengikuti layout aktual card cover 2/3 (bukan 1x/2x, tapi lebar kontainer). */
 const S_GRID = '(min-width:1280px) 174px, (min-width:1024px) 18vw, (min-width:768px) 22vw, (min-width:480px) 29vw, 45vw';
@@ -763,6 +777,7 @@ const ICON = {
 const svg = (name, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
 const icon = (name, cls = '') => `<span class="icn" aria-hidden="true">${svg(name, cls)}</span>`;
 const favIcn = on => icon(on ? 'bookmarkF' : 'bookmark', on ? 'filled' : '');
+const favBtnContent = on => favIcn(on) + '<span class="fav-txt">Favorite</span>';
 
 /* ============================================================
    STORAGE — favorit, riwayat, chapter terbaca, tema
@@ -884,6 +899,9 @@ function card(c, sizes = S_GRID, hideType = false) {
   const fav = isFav(slug);
   // NEW badge: hanya item pertama (dikontrol flag _isNew dari caller)
   const isNew = c._isNew === true;
+  // Baris teratas (6 pertama) eager + prioritas tinggi: terlihat tanpa
+  // menunggu estimasi viewport native lazy (pola "Recent Update").
+  const eager = c._eager === true, prio = c._eager === true;
   // Meta dua sisi: info (chapter/rating) di kiri, update-time di pojok kanan.
   const leftParts = [];
   if (c.chapter) leftParts.push(c.chapter);
@@ -894,7 +912,7 @@ function card(c, sizes = S_GRID, hideType = false) {
   return `<article class="comic">
     <a class="cover" href="${href}" tabindex="-1" aria-hidden="true">
       <span class="ph">${initials(c.title)}</span>
-      ${c.cover ? coverImg(c.cover, 300, sizes) : ''}
+      ${c.cover ? coverImg(c.cover, 300, sizes, eager, prio) : ''}
       ${!hideType && c.type ? `<span class="tag">${esc(c.type)}</span>` : ''}
       ${c.colored ? '<span class="tag color">Color</span>' : ''}
       ${isNew ? `<span class="tag new">NEW</span>` : ''}
@@ -905,10 +923,16 @@ function card(c, sizes = S_GRID, hideType = false) {
     ${left || upd ? `<p class="meta"><span class="m-left">${left}</span>${upd}</p>` : ''}
   </article>`;
 }
-const gridOf = (items, cls = 'grid', hideType = false) => items.length
-  ? `<div class="${cls}">${items.map(c => card(c, S_GRID, hideType)).join('')}</div>`
-  : empty('Empty', 'No comics found.');
-const railOf = items => `<div class="rail">${items.map(c => card(c, S_RAIL)).join('')}</div>`;
+const gridOf = (items, cls = 'grid', hideType = false, eagerFirst = 0) => {
+  items.forEach((c, i) => { c._eager = i < eagerFirst; });
+  return items.length
+    ? `<div class="${cls}">${items.map(c => card(c, S_GRID, hideType)).join('')}</div>`
+    : empty('Empty', 'No comics found.');
+};
+const railOf = items => {
+  items.forEach((c, i) => { c._eager = i === 0; });
+  return `<div class="rail">${items.map(c => card(c, S_RAIL)).join('')}</div>`;
+};
 
 function pager(page, hasNext, hrefFor, totalPages) {
   const cur = Number(page) || 1;
@@ -978,7 +1002,7 @@ async function pageHome() {
     terbaru.forEach((c, i) => {
       c._isNew = upd[i] !== null && (upd[i] - base) <= NEW_GAP;
     });
-    return block('Recently Updated', gridOf(terbaru, 'grid', true), MORE('/explore'));
+    return block('Recently Updated', gridOf(terbaru, 'grid', true, 6), MORE('/explore'));
   };
   const popHtml = groups => {
     groups = groups || [];
@@ -996,7 +1020,7 @@ async function pageHome() {
       MORE('/popular'), 'tabs');
   };
   const recHtml = items => items.length
-    ? block('Recommended For You', gridOf(items.slice(0, 10), 'grid wide')) : '';
+    ? block('Recommended For You', gridOf(items.slice(0, 10), 'grid wide', false, 6)) : '';
   const contHtml = () => {
     const hist = readHistory().slice(0, 3);
     if (hist.length) {
@@ -1030,6 +1054,21 @@ async function pageHome() {
   ];
   await Promise.all(jobs);
   wirePopularTabs();
+  warmPrimaryCovers();
+}
+
+// Warm cache gambar kartu baris pertama saat browser idle: halaman sudah
+// tampil, proxy/browser cache dipanaskan sehingga scroll berikutnya mendapat
+// hit (MISS -> HIT) tanpa jeda. Dipakai sekali per kunjungan home.
+function warmPrimaryCovers() {
+  const go = window.requestIdleCallback
+    ? cb => requestIdleCallback(cb, { timeout: 2000 })
+    : cb => setTimeout(cb, 800);
+  go(() => {
+    $$('#view img[data-cover]').slice(0, 5).forEach((el, i) => {
+      setTimeout(() => { const im = new Image(); im.src = el.currentSrc || el.src; }, i * 150);
+    });
+  });
 }
 
 // Tab populer: klik + navigasi panah (pola tablist WAI-ARIA).
@@ -1243,8 +1282,8 @@ async function pageDetail(slug) {
           <div class="actions">
             ${resume ? `<a class="btn primary" href="${readHref(slug, resume.ch)}">
               ${resumed ? `Continue ch. ${esc(resume.ch)}` : 'Start reading'}</a>` : ''}
-            <button class="btn icon" data-fav="${esc(slug)}" data-title="${esc(d.title)}" data-cover="${esc(d.cover || '')}"
-aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favorites'}">${favIcn(fav)}</button>
+            <button class="btn" data-fav="${esc(slug)}" data-title="${esc(d.title)}" data-cover="${esc(d.cover || '')}"
+aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favorites'}">${favBtnContent(fav)}</button>
           </div>
 
           ${facts.length ? `<dl class="facts">${facts.map(([k, v]) =>
@@ -1307,6 +1346,7 @@ aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favo
    READER
    ============================================================ */
 let readerNav = null;
+let readerObserver = null;
 
 async function pageReader(slug, ch) {
   document.body.dataset.view = 'reader';
@@ -1341,9 +1381,9 @@ async function pageReader(slug, ch) {
       </div>
 
       <div class="pages" id="pages">${pages.map((u, n) =>
-        `<img src="${IMG(u)}" alt="Page ${n + 1}" ${n < 2 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
+        `<img data-src="${IMG(u)}" data-pg="${n}" alt="Page ${n + 1}" ${n < 3 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
           onload="this.classList.add('done')"
-          onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.src;}else{this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Page ${n + 1} failed to load'}))}">`).join('')}
+          onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.dataset.src;}else{this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Page ${n + 1} failed to load'}))}">`).join('')}
       </div>
 
       <div class="rend">
@@ -1379,6 +1419,7 @@ async function pageReader(slug, ch) {
     };
     showChrome(true);
     chromeTimer = setTimeout(() => showChrome(false), 1800);
+    mountReaderImages();
 
     const sheet = $('#sheet'), scrim = $('#scrim'), sheetBtn = $('#sheetBtn');
     const setSheet = open => {
@@ -1420,6 +1461,44 @@ async function pageReader(slug, ch) {
 
 let chromeTimer = null, lastY = 0, ticking = false, closeSheet = null, tapScrollBlock = false;
 function showChrome(on) { document.body.classList.toggle('chrome', on); }
+
+/* Buffering halaman reader: gambar diletakkan tanpa src (data-src), lalu
+   IntersectionObserver mengisi src saat halaman mendekati viewport (rootMargin
+   1600px). Ditambah lookahead preload 3 halaman ke depan via new Image()
+   supaya disk/browser cache sudah hangat saat gambar tiba di layar — kualitas
+   gambar TETAP full-res (hanya waktu muat yang dipipieline, bukan ukuran). */
+function mountReaderImages() {
+  if (readerObserver) readerObserver.disconnect();
+  const imgs = $$('#pages img');
+  if (!imgs.length) return;
+  const load = (img, src) => {
+    if (!img || img.dataset.loaded) return;
+    img.dataset.loaded = '1';
+    img.src = src;
+  };
+  // 3 halaman awal langsung (tanpa menunggu observer) supaya LCP cepat.
+  const EAGER = 3, LOOKAHEAD = 3;
+  imgs.forEach((img, i) => {
+    if (i < EAGER) load(img, img.dataset.src);
+  });
+  readerObserver = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      const img = en.target;
+      if (!en.isIntersecting || img.dataset.loaded) return;
+      load(img, img.dataset.src);
+      const n = Number(img.dataset.pg) || 0;
+      for (let k = 1; k <= LOOKAHEAD; k++) {
+        const nx = imgs[n + k];
+        if (nx && !nx.dataset.loaded && !nx.dataset.warm) {
+          nx.dataset.warm = '1';
+          const im = new Image();
+          im.src = nx.dataset.src;
+        }
+      }
+    });
+  }, { rootMargin: '1700px 0px' });
+  imgs.forEach(img => { if (Number(img.dataset.pg) >= EAGER) readerObserver.observe(img); });
+}
 
 /* ============================================================
    AUTOSCROLL — tombol play melayang tengah bawah + tap-to-scroll
@@ -1544,6 +1623,7 @@ function go(url, replace = false) {
 function route() {
   _routeGen++;
   readerNav = null;
+  if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
   closeSheet = null;
   stopAutoscroll();
   clearTimeout(chromeTimer);
@@ -1596,7 +1676,7 @@ document.addEventListener('click', e => {
   if (fav) {
     e.preventDefault();
     const on = toggleFav(fav.dataset.fav, { title: fav.dataset.title, cover: fav.dataset.cover });
-    fav.innerHTML = favIcn(on);
+    fav.innerHTML = fav.querySelector('.fav-txt') ? favBtnContent(on) : favIcn(on);
     fav.setAttribute('aria-pressed', String(on));
     fav.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
     return;

@@ -250,8 +250,35 @@ class ReaderAndFrontendContractTest(unittest.TestCase):
         # Cover selalu dipotong ke portrait via object-fit:cover (CSS default),
         # tanpa fallback contain untuk landscape.
         self.assertNotIn('function fitCover', html)
-        # Reader memakai source asli tanpa resize/format.
-        self.assertIn('<img src="${IMG(u)}"', html)
+        # Reader memakai source asli tanpa resize/format; versi buffering
+        # menaruh URL di data-src (dimuat penuh saat halaman mendekati viewport).
+        self.assertIn('data-src="${IMG(u)}"', html)
+
+    def test_mobile_detail_header_centered_body_left(self):
+        # Cover detail sudah center via margin:0 auto; header teks (judul/meta/
+        # genre/aksi/fakta) juga harus center di layar sempit, sementara
+        # sinopsis & chapter tetap rata kiri.
+        with open(app_module.INDEX_PATH, encoding='utf-8') as fh:
+            html = fh.read()
+        self.assertIn('@media (max-width:599px)', html)
+        self.assertIn('.dhead .txt{text-align:center}', html)
+        self.assertIn('.dhead .dmeta{justify-content:center}', html)
+        self.assertIn('.genres{justify-content:center}', html)
+        self.assertIn('.dwrap > :first-child .actions{justify-content:center}', html)
+        # Aksi mobile: dua tombol sama lebar (masing-masing sampai batas tengah
+        # baris), grup terpenuhi & centered; tombol favorit berlabel "Favorite".
+        self.assertIn('.dwrap > :first-child .actions .btn{flex:1 1 0;min-width:0}', html)
+        self.assertIn('fav-txt', html)
+        self.assertIn('Favorite', html)
+        self.assertIn(".dwrap > :first-child .facts{text-align:center}", html)
+
+    def test_favorite_button_visible_border_in_dark(self):
+        # Border tombol favorit pakai var(--muted), bukan --line yang nyaris
+        # tak terlihat di latar hitam (night mode).
+        with open(app_module.INDEX_PATH, encoding='utf-8') as fh:
+            html = fh.read()
+        self.assertIn('.actions button[data-fav]{border-color:var(--muted)}', html)
+        self.assertNotIn('.actions button[data-fav]{border-color:var(--line)}', html)
 
 
 if __name__ == '__main__':
