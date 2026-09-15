@@ -153,6 +153,20 @@ class KomikuAPI:
 
     def __init__(self):
         self._local = threading.local()
+        self._lock_guard = threading.Lock()
+        self._portrait_locks = {}
+
+    def _portrait_lock(self, slug):
+        with self._lock_guard:
+            lk = self._portrait_locks.get(slug)
+            if lk is None:
+                lk = threading.Lock()
+                self._portrait_locks[slug] = lk
+            return lk
+
+    def _portrait_release(self, slug):
+        with self._lock_guard:
+            self._portrait_locks.pop(slug, None)
 
     def _session(self):
         """Session per-thread: requests.Session tidak thread-safe, sedangkan
@@ -418,28 +432,39 @@ class KomikuAPI:
                 if hit:
                     card['cover'] = hit
                 return card
-            hit = ''
+            # Single-flight per slug: saat TTL dingin & banyak kartu resolve
+            # bersamaan (listing 20-40 item, atau lintas-request), kerja yang
+            # sama tidak memukul upstream lebih dari sekali; yang menunggu
+            # memakai hasil yang sudah masuk cache setelah lock lepas.
+            lk = self._portrait_lock(card['slug'])
             try:
-                # Sumber utama: REST API upstream (andal, tidak diblokir).
-                hit = self.portrait_cover_api(card['slug']) or ''
-            except requests.RequestException:
-                # Fallback 1: scraping halaman detail komiku.org.
-                try:
-                    hit = web.portrait_cover(card['slug']) or ''
-                except requests.RequestException:
-                    # Fallback 2: kiryuu.to (cover WordPress portrait).
-                    try:
-                        hit = web.kiryuu_cover(card['slug']) or ''
-                    except requests.RequestException:
+                with lk:
+                    hit = get_cache(key)
+                    if hit is not None:
+                        if hit:
+                            card['cover'] = hit
                         return card
-            set_cache(key, hit, ttl=PORTRAIT_POS_TTL if hit else PORTRAIT_NEG_TTL)
-            if hit:
-                card['cover'] = hit
-            return card
+                    hit = ''
+                    try:
+                        # Sumber utama: REST API upstream (andal, tidak diblokir).
+                        hit = self.portrait_cover_api(card['slug']) or ''
+                    except requests.RequestException:
+                        # Fallback 1: scraping halaman detail komiku.org.
+                        try:
+                            hit = web.portrait_cover(card['slug']) or ''
+                        except requests.RequestException:
+                            # Fallback 2: kiryuu.to (cover WordPress portrait).
+                            try:
+                                hit = web.kiryuu_cover(card['slug']) or ''
+                            except requests.RequestException:
+                                return card
+                    set_cache(key, hit, ttl=PORTRAIT_POS_TTL if hit else PORTRAIT_NEG_TTL)
+                    if hit:
+                        card['cover'] = hit
+                    return card
+            finally:
+                self._portrait_release(card['slug'])
 
-        # Resolve tiap slug UNIK sekali saja: slug duplikat dalam satu listing
-        # (umum di /rekomendasi & /populer) tidak boleh memicu panggilan ganda
-        # saat cache dingin — hasilnya disalin ke semua duplikat sesudahnya.
         todo, first = [], set()
         for card in items:
             if self._needs_portrait_resolution(card) and card['slug'] not in first:
@@ -603,8 +628,58 @@ def _similar_from_kiryuu_genre(kiryuu, detail_data, slug, limit=10):
             return out
     return []
 
+# --- PREWARM (booting cepat di 'recent update') ---
+_WARM_LOCK_PATH = os.path.join(tempfile.gettempdir(), 'zomic-warm.lock')
+
+
+def _warm_latest():
+    """Isi cache /api/latest + portrait cover saat boot, di background.
+
+    Home ('Recently Updated') paling terasa lambat saat cache dingin karena
+    _resolve_portrait memukul upstream untuk tiap kartu banner. Warm-up ini
+    mengeksekusi api.latest(1) sekali di thread daemon sehingga user pertama
+    sudah dapat data + cover dari cache hangat.
+
+    Guard antar-process via flock non-blocking: dengan uvicorn workers>1,
+    hanya satu worker yang menjalankan warm-up supaya upstream tidak dipukul
+    N kali sekaligus. Tidak blocking boot (thread daemon).
+    """
+    try:
+        fh = open(_WARM_LOCK_PATH, 'w')
+        try:
+            import fcntl
+        except ImportError:
+            fh.close()
+            return
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.close()
+            return
+        try:
+            api.latest(1)
+        except Exception:
+            pass
+        finally:
+            try:
+                fh.close()
+            except Exception:
+                pass
+    except OSError:
+        pass
+
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    threading.Thread(target=_warm_latest, daemon=True, name='zomic-warm').start()
+    yield
+
+
 # --- FASTAPI APP ---
-app = FastAPI(title="Zomic Komik", version="2.0.0")
+app = FastAPI(title="Zomic Komik", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -736,8 +811,8 @@ def latest(page: int = Query(1, ge=1), response: Response = None):
             raise requests.RequestException("latest: kedua upstream gagal")
         return _merge_items(komiku_data or [], kiryuu_data or [])
 
-    data = cached(f"latest_{page}", _latest, ttl=600)
-    _edge_cache(response, s_maxage=300, swr=900)
+    data = cached(f"latest_{page}", _latest, ttl=1800)
+    _edge_cache(response, s_maxage=300, swr=2700)
     return data
 
 @app.get("/api/catalog")
@@ -1098,6 +1173,14 @@ IMAGE_CACHE_MAX_BYTES = int(os.environ.get('IMAGE_CACHE_MAX_BYTES', '268435456')
 
 _IMG_LOCK = threading.Lock()
 _AVIF_OK = None
+# Encode AVIF Pillow sangat lambat (detik/gambar di CPU shared) — default
+# format=auto memakai WebP yang encode-nya jauh lebih cepat. AVIF tetap bisa
+# dipakai via format=avif eksplisit, atau set IMAGE_PREFER_AVIF=1.
+IMAGE_PREFER_AVIF = os.environ.get('IMAGE_PREFER_AVIF', '0') == '1'
+# Method WebP: makin kecil makin cepat (0-6). Default 3 = keseimbangan; ukuran
+# naik sedikit vs method=4 tapi encode jauh lebih cepat (mengurangi TTFB saat
+# cache gambar dingin).
+IMAGE_WEBP_METHOD = int(os.environ.get('IMAGE_WEBP_METHOD', '3'))
 # Throttle evict: scan direktori bisa lambat bila ribuan file, jadi evict
 # maksimal 1x per interval walau puluhan gambar ditulis beruntun.
 _IMG_EVICT_LAST = 0.0
@@ -1325,7 +1408,7 @@ def _pick_format(fmt, accept):
     if fmt == 'avif':
         return 'AVIF' if _avif_supported() else 'WEBP'
     if fmt == 'auto':
-        if 'image/avif' in accept and _avif_supported():
+        if IMAGE_PREFER_AVIF and 'image/avif' in accept and _avif_supported():
             return 'AVIF'
         if 'image/webp' in accept:
             return 'WEBP'
@@ -1355,7 +1438,7 @@ def _process_image(data, width, eff_fmt, quality):
     if eff_fmt == 'JPEG':
         img.save(out, 'JPEG', quality=quality, optimize=True)
     elif eff_fmt == 'WEBP':
-        img.save(out, 'WEBP', quality=quality, method=4)
+        img.save(out, 'WEBP', quality=quality, method=IMAGE_WEBP_METHOD)
     elif eff_fmt == 'AVIF':
         img.save(out, 'AVIF', quality=quality)
     else:
@@ -1511,4 +1594,7 @@ if __name__ == "__main__":
     # 2 worker: endpoint sync + upstream lambat membuat 1 worker mudah macet
     # antrean. Naikkan ke 4 bila RAM longgar (WORKERS=4).
     workers = int(os.environ.get("WORKERS", 2))
-    uvicorn.run(app, host="0.0.0.0", port=port, workers=workers)
+    # workers>1 wajib import string (bukan app object) — objek + workers tidak
+    # didukung uvicorn dan hanya print warning tanpa menjalankan multiple worker.
+    target = "app:app" if workers and workers != 1 else app
+    uvicorn.run(target, host="0.0.0.0", port=port, workers=workers)

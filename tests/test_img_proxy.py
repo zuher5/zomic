@@ -30,6 +30,7 @@ class ImageProxyTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
         os.environ['IMAGE_CACHE_DIR'] = cls.tmp
+        os.environ.pop('IMAGE_PREFER_AVIF', None)
         import app as app_module
         importlib.reload(app_module)
         cls.app = app_module
@@ -91,13 +92,15 @@ class ImageProxyTest(unittest.TestCase):
         self.assertLessEqual(img.width, 400)
         self.assertAlmostEqual(img.height / img.width, 1.5, delta=0.02)
 
-    def test_avif_when_accepted(self):
+    def test_avif_when_accepted_but_default_optin_off(self):
+        # IMAGE_PREFER_AVIF default 0 → format=auto memakai WebP meski klien
+        # menerima AVIF (encode AVIF Pillow sangat lambat).
         with self._fetch(PNG_SRC):
             r = self.client.get('/api/img', params={'url': 'https://img.komiku.org/cover/x.png',
                                                     'w': 400, 'format': 'auto', 'q': 78},
                                 headers={'Accept': 'image/avif,image/webp,image/*'})
         self.assertEqual(r.status_code, 200)
-        self.assertIn(r.headers['content-type'], ('image/avif', 'image/webp'))
+        self.assertEqual(r.headers['content-type'], 'image/webp')
 
     def test_no_upscale(self):
         with self._fetch(_png(150, 225)):
@@ -169,6 +172,7 @@ class FormatAutoVaryTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
         os.environ['IMAGE_CACHE_DIR'] = cls.tmp
+        os.environ.pop('IMAGE_PREFER_AVIF', None)
         import app as app_module
         importlib.reload(app_module)
         cls.app = app_module
@@ -192,12 +196,12 @@ class FormatAutoVaryTest(unittest.TestCase):
         return self.client.get('/api/img', params=params,
                                headers={'Accept': accept})
 
-    def test_avif_accept_gets_matching_type_and_vary(self):
+    def test_avif_accept_gets_webp_by_default(self):
+        # IMAGE_PREFER_AVIF default 0 → auto = WebP (encode cepat), bukan AVIF.
         with self._fetch(PNG_SRC):
             r = self._get('image/avif,image/webp,image/*')
         self.assertEqual(r.status_code, 200)
-        expected = 'image/avif' if self.app._avif_supported() else 'image/webp'
-        self.assertEqual(r.headers['content-type'], expected)
+        self.assertEqual(r.headers['content-type'], 'image/webp')
         self.assertIn('Accept', r.headers.get('vary', ''))
 
     def test_webp_accept_gets_webp_and_vary(self):
@@ -242,6 +246,93 @@ class FormatAutoVaryTest(unittest.TestCase):
             r = self.client.get('/api/img',
                                 params={'url': 'https://img.komiku.org/cover/x.webp'})
         self.assertNotIn('Accept', r.headers.get('vary', ''))
+
+
+class FormatAutoAvifOptInTest(unittest.TestCase):
+    """IMAGE_PREFER_AVIF=1 → format=auto memilih AVIF bila Pillow mendukung."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        os.environ['IMAGE_CACHE_DIR'] = cls.tmp
+        os.environ['IMAGE_PREFER_AVIF'] = '1'
+        import app as app_module
+        importlib.reload(app_module)
+        cls.app = app_module
+        cls.client = TestClient(app_module.app)
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ.pop('IMAGE_PREFER_AVIF', None)
+
+    def setUp(self):
+        self.app.cache.clear()
+        for f in os.listdir(self.app.IMAGE_CACHE_DIR):
+            try:
+                os.remove(os.path.join(self.app.IMAGE_CACHE_DIR, f))
+            except OSError:
+                pass
+
+    def test_auto_avif_when_optin_and_supported(self):
+        def _fetch(data):
+            ctype = self.app._ctype_from_bytes(data)
+            return patch.object(self.app, '_img_fetch', return_value=(data, ctype))
+        with _fetch(PNG_SRC):
+            r = self.client.get('/api/img',
+                                params={'url': 'https://img.komiku.org/cover/x.png',
+                                        'w': 400, 'format': 'auto', 'q': 78},
+                                headers={'Accept': 'image/avif,image/webp,image/*'})
+        self.assertEqual(r.status_code, 200)
+        expected = 'image/avif' if self.app._avif_supported() else 'image/webp'
+        self.assertEqual(r.headers['content-type'], expected)
+
+    def test_explicit_avif_format_always_respected(self):
+        def _fetch(data):
+            ctype = self.app._ctype_from_bytes(data)
+            return patch.object(self.app, '_img_fetch', return_value=(data, ctype))
+        with _fetch(PNG_SRC):
+            r = self.client.get('/api/img',
+                                params={'url': 'https://img.komiku.org/cover/x.png',
+                                        'w': 400, 'format': 'avif', 'q': 80})
+        self.assertEqual(r.status_code, 200)
+        expected = 'image/avif' if self.app._avif_supported() else 'image/webp'
+        self.assertEqual(r.headers['content-type'], expected)
+
+
+class FormatAutoDefaultWebpTest(unittest.TestCase):
+    """format=auto default (IMAGE_PREFER_AVIF off): WebP untuk klien webp,
+    JPEG untuk klien jpeg-only. AVIF TIDAK dipilih di path auto."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        os.environ['IMAGE_CACHE_DIR'] = cls.tmp
+        os.environ.pop('IMAGE_PREFER_AVIF', None)
+        import app as app_module
+        importlib.reload(app_module)
+        cls.app = app_module
+        cls.client = TestClient(app_module.app)
+
+    def setUp(self):
+        self.app.cache.clear()
+        for f in os.listdir(self.app.IMAGE_CACHE_DIR):
+            try:
+                os.remove(os.path.join(self.app.IMAGE_CACHE_DIR, f))
+            except OSError:
+                pass
+
+    def _fetch(self, data):
+        ctype = self.app._ctype_from_bytes(data)
+        return patch.object(self.app, '_img_fetch', return_value=(data, ctype))
+
+    def test_pick_format_auto_prefers_webp_over_avif(self):
+        pick = self.app._pick_format
+        self.assertEqual(pick('auto', 'image/avif,image/webp,image/*'), 'WEBP')
+        self.assertEqual(pick('auto', 'image/webp,*/*'), 'WEBP')
+        self.assertEqual(pick('auto', 'image/jpeg,*/*'), 'JPEG')
+        self.assertEqual(pick('webp', 'image/avif,*/*'), 'WEBP')
+        self.assertEqual(pick('avif', 'image/webp,*/*'), 'AVIF' if self.app._avif_supported() else 'WEBP')
+        self.assertIsNone(pick('original', '*/*'))
 
 
 class HealthTest(unittest.TestCase):
