@@ -6,7 +6,7 @@ import threading
 import time
 import logging
 from typing import List
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from fastapi import FastAPI, HTTPException, Path, Query, Request
@@ -313,6 +313,19 @@ class KomikuAPI:
             set_cache(key, d, DETAIL_JSON_TTL)
             return d
         return {}
+
+    def _title_for_slug(self, slug):
+        """Judul komik dari detail-JSON (di-cache) untuk resolve slug kiryuu.
+
+        Dipanggil malas (lazy) hanya saat slug kiryuu mentah tidak ketemu,
+        sehingga jalur cepat reader (slug langsung ada di kiryuu) tidak
+        menambah request detail di jalur kritis. '' bila detail gagal.
+        """
+        try:
+            d = self._detail_json(slug)
+        except Exception:
+            return ''
+        return (d.get('title') or '') if isinstance(d, dict) else ''
 
     def _baca_slug(self, slug):
         """Slug namespace baca-chapter yang benar, otoritatif dari apiLink
@@ -679,14 +692,110 @@ async def lifespan(_app):
 
 
 # --- FASTAPI APP ---
-app = FastAPI(title="Zomic Komik", version="2.0.0", lifespan=lifespan)
+# Dokumentasi interaktif (/docs, /redoc, /openapi.json) tidak diekspos di
+# produksi: mengurangi information disclosure (daftar endpoint + skema).
+# Aktifkan dengan ENABLE_DOCS=1 saat development.
+_ENABLE_DOCS = os.environ.get('ENABLE_DOCS', '0') == '1'
+app = FastAPI(
+    title="Zomic Komik",
+    version="2.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _ENABLE_DOCS else None,
+    redoc_url="/redoc" if _ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if _ENABLE_DOCS else None,
+)
 
+# CORS: hanya origin pertama-party (dan localhost untuk dev) yang boleh
+# memanggil API lintas-origin; method dibatasi ke GET/HEAD/OPTIONS karena
+# API ini read-only. Override via env CORS_ORIGINS (dipisah koma).
+_DEFAULT_ORIGINS = "https://zomic.my.id,http://localhost:8000,http://127.0.0.1:8000"
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', _DEFAULT_ORIGINS).split(',') if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "HEAD", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# --- SECURITY HEADERS ---
+# Header hardening untuk semua respons. CSP memakai 'unsafe-inline' untuk
+# script/style karena SPA ini single-file dengan <script>/<style> inline dan
+# atribut on* (tanpa nonce/hash build). img-src 'self' cukup: semua gambar
+# lewat /api/img. frame-ancestors 'none' + X-Frame-Options menutup clickjacking.
+_SECURITY_HEADERS = {
+    'Content-Security-Policy': (
+        "default-src 'self'; img-src 'self' data:; font-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+    ),
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+}
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    for k, v in _SECURITY_HEADERS.items():
+        resp.headers.setdefault(k, v)
+    return resp
+
+
+# --- RATE LIMIT ---
+# Fixed-window in-memory per IP. Cukup untuk membatasi abuse endpoint mahal
+# (scrape upstream + resize gambar) pada satu instance; multi-instance bisa
+# memakai nilai lebih longgar (env) atau rate limit di edge.
+RATE_LIMIT_IMG = int(os.environ.get('RATE_LIMIT_IMG', '300'))    # per menit
+RATE_LIMIT_API = int(os.environ.get('RATE_LIMIT_API', '120'))    # per menit
+_RATE_BUCKETS = {}
+_RATE_LOCK = threading.Lock()
+
+
+def _client_ip(request: Request):
+    # Cloudflare mengirim IP asli di CF-Connecting-IP; platform/proxy lain
+    # memakai X-Forwarded-For (ambil hop pertama = klien asli).
+    ip = request.headers.get('CF-Connecting-IP')
+    if not ip:
+        fwd = request.headers.get('X-Forwarded-For')
+        if fwd:
+            ip = fwd.split(',')[0].strip()
+    return ip or (request.client.host if request.client else '') or 'unknown'
+
+
+def _rate_limited(key, limit):
+    now = time.time()
+    with _RATE_LOCK:
+        window, count = _RATE_BUCKETS.get(key, (0, 0))
+        if now - window >= 60:
+            window, count = now, 0
+        count += 1
+        _RATE_BUCKETS[key] = (window, count)
+        # Prune ringan supaya dict tidak tumbuh tanpa batas.
+        if len(_RATE_BUCKETS) > 4096:
+            cutoff = now - 60
+            for k in [k for k, (w, _) in _RATE_BUCKETS.items() if w < cutoff]:
+                _RATE_BUCKETS.pop(k, None)
+    return count > limit
+
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    path = request.url.path
+    if path == '/api/img':
+        limit = RATE_LIMIT_IMG
+    elif path.startswith('/api/'):
+        limit = RATE_LIMIT_API
+    else:
+        return await call_next(request)
+    if _rate_limited(f"{_client_ip(request)}:{path}", limit):
+        headers = {'Retry-After': '60', **_SECURITY_HEADERS}
+        return Response(content='{"detail":"rate limit exceeded"}',
+                        status_code=429, media_type='application/json',
+                        headers=headers)
+    return await call_next(request)
 
 
 def _parallel(first_fn, second_fn):
@@ -1106,14 +1215,8 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
         # kiryuu DIUTAMAKAN (paling stabil dari cloud). Slug mentah dicoba
         # dulu (judul yang sama di kedua sumber); bila kosong, resolve slug
         # kiryuu dari judul komiku. komiku (apiLink benar) jadi fallback.
-        # Judul diambil dari detail-JSON cache (1 fetch, dipakai ulang);
-        # race paralel di bawah menutup selisih waktu kedua sumber.
-        try:
-            dj = api._detail_json(slug)
-        except Exception:
-            dj = {}
-        title = (dj.get('title') or '') if isinstance(dj, dict) else ''
-
+        # Judul di-fetch MALAS: hanya bila slug kiryuu mentah tidak ketemu,
+        # jadi jalur cepat reader tidak menunggu request detail tambahan.
         def _kiryuu():
             try:
                 imgs = kiryuu.chapter_images(slug, chapter)
@@ -1121,6 +1224,7 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
                     return (imgs, 0)
             except Exception:
                 pass
+            title = api._title_for_slug(slug)
             kslug = _resolve_kiryuu_slug(title, exclude=slug) if title else ''
             if kslug:
                 try:
@@ -1341,15 +1445,55 @@ def _img_source_lock(src_key):
         return lock
 
 
+# Redirect manual: requests default (allow_redirects=True) mengikuti Location
+# tanpa validasi ulang, jadi host allowlist yang membalas 302 ke IP internal /
+# metadata bisa menembus allowlist (SSRF). Setiap hop divalidasi ulang terhadap
+# scheme + allowlist host; maksimum MAX_IMG_REDIRECTS hop.
+MAX_IMG_REDIRECTS = 3
+
+
+def _img_referer(url):
+    """Referer per-request berdasarkan host sumber (bukan mutasi session bersama)."""
+    low = url.lower()
+    return 'https://v7.kiryuu.to/' if ('kiryuu.to' in low or 'yuucdn.com' in low) else 'https://komiku.org/'
+
+
+def _img_open(session, url):
+    """GET streaming dengan follow redirect manual + validasi tiap hop (anti-SSRF).
+
+    Mengembalikan response non-redirect (200 atau error) atau None bila tidak ada
+    respons. Raise HTTPException(502) bila redirect menuju scheme/host yang
+    dilarang atau jumlah hop melebihi batas — jadi allowlist host tidak bisa
+    dilewati lewat Location header.
+    """
+    current = url
+    for _ in range(MAX_IMG_REDIRECTS + 1):
+        req = retry_get(session, current, timeout=(5, 15), stream=True,
+                        allow_redirects=False, headers={'Referer': _img_referer(current)})
+        if req is None:
+            return None
+        if req.status_code in (301, 302, 303, 307, 308):
+            loc = req.headers.get('Location')
+            req.close()
+            if not loc:
+                raise HTTPException(status_code=502, detail="upstream unavailable")
+            nxt = urljoin(current, loc)
+            parsed = urlparse(nxt)
+            if parsed.scheme not in ('http', 'https') or not _img_host_allowed(parsed.hostname):
+                log.warning("img redirect ditolak: %s -> %s", current, nxt)
+                raise HTTPException(status_code=502, detail="upstream unavailable")
+            current = nxt
+            continue
+        return req
+    raise HTTPException(status_code=502, detail="upstream unavailable")
+
+
 def _img_fetch(url):
     """Download dengan limit ukuran + cache source. Return (bytes, content-type)."""
     src_key = hashlib.sha256(('src:' + url).encode('utf-8')).hexdigest()
     cached_src = _img_cache_get(src_key, IMAGE_SOURCE_CACHE_TTL)
     if cached_src is not None:
         return cached_src, _ctype_from_bytes(cached_src)
-    # Referer per-request berdasarkan host sumber (bukan mutasi session bersama).
-    low = url.lower()
-    referer = 'https://v7.kiryuu.to/' if ('kiryuu.to' in low or 'yuucdn.com' in low) else 'https://komiku.org/'
     host = urlparse(url).hostname or '?'
 
     def _fail(client_msg, log_msg):
@@ -1366,8 +1510,7 @@ def _img_fetch(url):
                 cached_src = _img_cache_get(src_key, IMAGE_SOURCE_CACHE_TTL)
                 if cached_src is not None:
                     return cached_src, _ctype_from_bytes(cached_src)
-                req = retry_get(session, url, timeout=(5, 15), stream=True,
-                                headers={'Referer': referer})
+                req = _img_open(session, url)
                 if req is None or req.status_code != 200:
                     code = req.status_code if req is not None else None
                     if req is not None:
@@ -1576,6 +1719,10 @@ def spa_fallback(full_path: str):
     Route API & aset eksplisit tetap diprioritaskan karena terdaftar lebih dulu.
     """
     if full_path.startswith(("api/", "fonts/")):
+        raise HTTPException(status_code=404, detail="not found")
+    # Path dokumentasi tidak boleh "ditelan" SPA fallback (kalau tidak, saat
+    # docs dimatikan /docs & /openapi.json tetap membalas 200 berisi HTML).
+    if full_path in ("docs", "redoc", "openapi.json"):
         raise HTTPException(status_code=404, detail="not found")
     return _serve_index()
 

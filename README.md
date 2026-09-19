@@ -160,6 +160,10 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 | `IMAGE_CACHE_MAX_BYTES` | `268435456` | Batas total cache disk (256 MB) |
 | `IMAGE_PREFER_AVIF` | `0` | Saat `1`, `format=auto` memakai AVIF bila Pillow mendukung; default `0` → WebP (encode jauh lebih cepat) |
 | `IMAGE_WEBP_METHOD` | `3` | Method encode WebP (0–6); makin kecil makin cepat, ukuran naik sedikit |
+| `ENABLE_DOCS` | `0` | Saat `1`, membuka `/docs`, `/redoc`, dan `/openapi.json` (untuk dev). Default `0` → 404 |
+| `CORS_ORIGINS` | `https://zomic.my.id,http://localhost:8000,http://127.0.0.1:8000` | Daftar origin CORS dipisah koma |
+| `RATE_LIMIT_IMG` | `300` | Batas request `/api/img` per menit per IP |
+| `RATE_LIMIT_API` | `120` | Batas request endpoint `/api/*` lain per menit per IP |
 
 Cache disk (`/tmp`) bersifat **ephemeral**: hilang saat instance di-restart.
 Di FastAPI Cloud service tidur setelah idle — cache yang hilang itu normal;

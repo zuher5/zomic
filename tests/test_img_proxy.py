@@ -369,5 +369,98 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(body['catalog_total'], 7615)
 
 
+class RedirectSsrfTest(unittest.TestCase):
+    """_img_open mengikuti redirect MANUAL dan memvalidasi tiap hop: host
+    allowlist yang membalas 302 ke IP internal / host di luar allowlist tidak
+    boleh dilewati (SSRF via Location header)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        os.environ['IMAGE_CACHE_DIR'] = cls.tmp
+        import app as app_module
+        importlib.reload(app_module)
+        cls.app = app_module
+
+    def setUp(self):
+        self.app.cache.clear()
+
+    class _Resp:
+        def __init__(self, status, headers=None):
+            self.status_code = status
+            self.headers = headers or {}
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    def test_redirect_to_internal_host_is_blocked(self):
+        seq = [self._Resp(302, {'Location': 'http://169.254.169.254/latest/meta-data/'})]
+        with patch.object(self.app, 'retry_get', side_effect=lambda *a, **k: seq.pop(0)):
+            with self.assertRaises(self.app.HTTPException) as ctx:
+                self.app._img_open(object(), 'https://img.komiku.org/a.png')
+        self.assertEqual(ctx.exception.status_code, 502)
+
+    def test_redirect_to_non_allowlisted_host_is_blocked(self):
+        seq = [self._Resp(302, {'Location': 'https://evil.example.com/x.png'})]
+        with patch.object(self.app, 'retry_get', side_effect=lambda *a, **k: seq.pop(0)):
+            with self.assertRaises(self.app.HTTPException):
+                self.app._img_open(object(), 'https://img.komiku.org/a.png')
+
+    def test_redirect_to_allowed_host_is_followed(self):
+        seq = [
+            self._Resp(302, {'Location': 'https://img.komiku.org/real.png'}),
+            self._Resp(200),
+        ]
+        calls = []
+
+        def fake_get(_session, url, **kwargs):
+            calls.append(url)
+            return seq.pop(0)
+
+        with patch.object(self.app, 'retry_get', side_effect=fake_get):
+            resp = self.app._img_open(object(), 'https://img.komiku.org/a.png')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(calls, ['https://img.komiku.org/a.png', 'https://img.komiku.org/real.png'])
+
+    def test_no_redirect_disables_auto_follow(self):
+        seen = {}
+
+        def fake_get(_session, url, **kwargs):
+            seen.update(kwargs)
+            return self._Resp(200)
+
+        with patch.object(self.app, 'retry_get', side_effect=fake_get):
+            self.app._img_open(object(), 'https://img.komiku.org/a.png')
+        self.assertIs(seen.get('allow_redirects'), False)
+
+    def test_redirect_loop_is_capped(self):
+        def fake_get(_session, url, **kwargs):
+            return self._Resp(302, {'Location': 'https://img.komiku.org/loop.png'})
+
+        with patch.object(self.app, 'retry_get', side_effect=fake_get):
+            with self.assertRaises(self.app.HTTPException):
+                self.app._img_open(object(), 'https://img.komiku.org/a.png')
+
+
+class SecurityHeaderTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import app as app_module
+        importlib.reload(app_module)
+        cls.client = TestClient(app_module.app)
+
+    def test_security_headers_present(self):
+        r = self.client.get('/health')
+        self.assertEqual(r.headers.get('x-content-type-options'), 'nosniff')
+        self.assertEqual(r.headers.get('x-frame-options'), 'DENY')
+        self.assertIn('content-security-policy', r.headers)
+        self.assertIn('frame-ancestors', r.headers['content-security-policy'])
+
+    def test_docs_disabled_by_default(self):
+        self.assertEqual(self.client.get('/docs').status_code, 404)
+        self.assertEqual(self.client.get('/openapi.json').status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()
