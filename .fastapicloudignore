@@ -11,3 +11,9 @@ tests/__pycache__/
 *.log
 *.zip
 *Zone.Identifier
+
+# Runtime DB — jangan upload ke cloud (token sesi & akun pengguna)
+data/
+*.db
+*.db-wal
+*.db-shm
