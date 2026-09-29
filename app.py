@@ -577,27 +577,49 @@ def _merge_items(komiku_items, kiryuu_items):
     Semua item komiku didahulukan (urutan ditentukan komiku). Item kiryuu
     yang slugnya belum ada di komiku ditambahkan di belakang. Setiap item
     mendapat key 'source' = 'komiku' | 'kiryuu' | 'both'.
+
+    Dedup dilakukan DUA lapis: slug (persis) dan judul ternormalisasi.
+    Slug berbeda tapi judul sama sering muncul (mis. komiku
+    'komik-one-piece-indo' vs kiryuu 'one-piece' untuk 'One Piece');
+    tanpa lapis kedua katalog menampilkan judul yang sama dua kali.
     """
     seen = set()
+    titles = set()
     out = []
     for card in komiku_items:
         slug = card.get('slug')
         if slug and slug != 'unknown':
             seen.add(slug)
+        norm = _norm_title(card.get('title'))
+        if norm:
+            titles.add(norm)
         card['source'] = 'komiku'
         _en_item_genre(card)
         out.append(card)
     for card in kiryuu_items:
         slug = card.get('slug')
-        if not slug or slug in seen:
+        norm = _norm_title(card.get('title'))
+        if not slug:
+            continue
+        if slug in seen:
             # Slug sudah ada dari komiku → tandai sebagai 'both' pada item komiku
-            if slug and slug in seen:
-                for c in out:
-                    if c.get('slug') == slug and c.get('source') == 'komiku':
-                        c['source'] = 'both'
-                        break
+            for c in out:
+                if c.get('slug') == slug and c.get('source') == 'komiku':
+                    c['source'] = 'both'
+                    break
+            continue
+        if norm and norm in titles:
+            # Judul sama sudah dipakai item komiku: tandai 'both' pada item
+            # itu (tidak menambah duplikat) supaya user tetap membuka satu
+            # entri saja. Key tidak ditambah agar kontrak API tidak berubah.
+            for c in out:
+                if _norm_title(c.get('title')) == norm and c.get('source') == 'komiku':
+                    c['source'] = 'both'
+                    break
             continue
         seen.add(slug)
+        if norm:
+            titles.add(norm)
         card['source'] = 'kiryuu'
         _en_item_genre(card)
         out.append(card)
@@ -750,6 +772,10 @@ async def _security_headers(request: Request, call_next):
 # memakai nilai lebih longgar (env) atau rate limit di edge.
 RATE_LIMIT_IMG = int(os.environ.get('RATE_LIMIT_IMG', '300'))    # per menit
 RATE_LIMIT_API = int(os.environ.get('RATE_LIMIT_API', '120'))    # per menit
+# /health?deep=1 memicu scrape penuh (katalog + listing) tapi tidak di bawah
+# /api/ sehingga sebelumnya tidak kena rate limit. Batasi juga supaya endpoint
+# diagnostic tidak jadi jalur scraping gratis.
+RATE_LIMIT_DEEP = int(os.environ.get('RATE_LIMIT_DEEP', '6'))    # per menit
 _RATE_BUCKETS = {}
 _RATE_LOCK = threading.Lock()
 
@@ -788,6 +814,10 @@ async def _rate_limit(request: Request, call_next):
         limit = RATE_LIMIT_IMG
     elif path.startswith('/api/'):
         limit = RATE_LIMIT_API
+    elif path == '/health' and request.query_params.get('deep') in ('1', 'true'):
+        # deep=0 (default) sengaja TIDAK dibatasi supaya health check
+        # deployment tidak pernah kena 429.
+        limit = RATE_LIMIT_DEEP
     else:
         return await call_next(request)
     if _rate_limited(f"{_client_ip(request)}:{path}", limit):
@@ -1261,7 +1291,13 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
 # --- IMAGE PROXY (cover, optimized) ---
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
 # open proxy / vektor SSRF (bisa dipakai menembak jaringan internal).
-IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net')
+IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id')
+# CDN gambar bisa berganti di luar kontrol kita (dulu image*.komiku.to,
+# sekarang cdnkuma.my.id). Tambahan suffix via env tanpa redeploy kode:
+# IMG_HOST_SUFFIXES_EXTRA="cdn-baru.example.com,cdn-lain.example.net"
+_EXTRA = [s.strip().lower().lstrip('.') for s in os.environ.get('IMG_HOST_SUFFIXES_EXTRA', '').split(',') if s.strip()]
+if _EXTRA:
+    IMG_HOST_SUFFIXES = tuple(IMG_HOST_SUFFIXES) + tuple(_EXTRA)
 
 def _img_host_allowed(host):
     host = (host or '').lower().split(':')[0]
@@ -1489,10 +1525,20 @@ def _img_open(session, url):
 
 
 def _img_fetch(url):
-    """Download dengan limit ukuran + cache source. Return (bytes, content-type)."""
+    """Download dengan limit ukuran + cache source. Return (bytes, content-type).
+
+    Content-type di-cache bersama byte-nya lewat cache key terpisah ('src:'
+    untuk byte, 'ct:' untuk mime). Tanpa ini path cache men-sniff mime dari
+    byte sedangkan path fresh memakai header upstream — URL sama bisa keluar
+    dua mime berbeda (mis. CDN mengirim application/octet-stream untuk PNG).
+    """
     src_key = hashlib.sha256(('src:' + url).encode('utf-8')).hexdigest()
+    ct_key = hashlib.sha256(('ct:' + url).encode('utf-8')).hexdigest()
     cached_src = _img_cache_get(src_key, IMAGE_SOURCE_CACHE_TTL)
     if cached_src is not None:
+        cached_ct = _img_cache_get(ct_key, IMAGE_SOURCE_CACHE_TTL)
+        if cached_ct:
+            return cached_src, cached_ct.decode('utf-8', 'replace')
         return cached_src, _ctype_from_bytes(cached_src)
     host = urlparse(url).hostname or '?'
 
@@ -1509,6 +1555,9 @@ def _img_fetch(url):
             try:
                 cached_src = _img_cache_get(src_key, IMAGE_SOURCE_CACHE_TTL)
                 if cached_src is not None:
+                    cached_ct = _img_cache_get(ct_key, IMAGE_SOURCE_CACHE_TTL)
+                    if cached_ct:
+                        return cached_src, cached_ct.decode('utf-8', 'replace')
                     return cached_src, _ctype_from_bytes(cached_src)
                 req = _img_open(session, url)
                 if req is None or req.status_code != 200:
@@ -1536,6 +1585,7 @@ def _img_fetch(url):
             except requests.RequestException as e:
                 _fail("upstream error", type(e).__name__)
             _img_cache_put(src_key, data)
+            _img_cache_put(ct_key, ctype.encode('utf-8'))
             return data, ctype
     finally:
         # Bersihkan lock DARI dict SETELAH blok with selesai, supaya thread

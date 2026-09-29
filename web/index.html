@@ -137,7 +137,7 @@ header.top{
 }
 
 
-.search{display:flex;align-items:center;gap:var(--sp-2);width:100%}
+.search{display:flex;align-items:center;gap:var(--sp-2);width:100%;position:relative}
 .search input{
   flex:1;min-width:0;height:38px;background:var(--surface);
   border:1px solid var(--line);border-radius:var(--r-pill);
@@ -158,6 +158,43 @@ header.top{
 .search .go:active{transform:scale(.96)}
 .top .search-row{display:none;padding-bottom:var(--sp-3)}
 .top.open .search-row{display:block}
+
+/* Search suggestions (typeahead dropdown).
+   Diposisikan relatif terhadap <form class="search"> (position:relative), bukan
+   header, sehingga tidak ikut ter-clip saat halaman scroll. */
+.sugg{
+  position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:1;
+  max-height:min(50dvh,300px);overflow-y:auto;-webkit-overflow-scrolling:touch;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
+  box-shadow:var(--shadow-lg);
+}
+.sugg[hidden]{display:none}
+.sugg a{
+  display:grid;grid-template-columns:40px 1fr;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-3);min-height:60px;
+  border-bottom:1px solid var(--line);color:var(--text);text-decoration:none;
+  transition:background .12s var(--ease);
+}
+.sugg a:last-child{border-bottom:0}
+.sugg a:hover,.sugg a[aria-selected="true"]{background:var(--surface-hover)}
+.sugg a[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--accent)}
+/* Cover 40px (aspect 2/3) — sama dengan .hist .hcover di riwayat. */
+.sugg .sc{
+  position:relative;width:40px;aspect-ratio:2/3;border-radius:var(--r-xs);
+  background:var(--surface-strong);overflow:hidden;display:grid;place-items:center;flex:0 0 auto;
+}
+.sugg .sc img{width:100%;height:100%;object-fit:cover}
+.sugg .sc .ph{position:absolute;font-size:1rem;font-weight:800;color:var(--muted);opacity:.5}
+.sugg .st{min-width:0}
+.sugg .st .t{font-size:var(--t-sm);font-weight:600;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sugg .st .t mark{background:none;color:var(--accent);font-weight:800}
+.sugg .none{padding:var(--sp-4);text-align:center;font-size:var(--t-meta);color:var(--muted)}
+.sugg .all{
+  grid-template-columns:1fr;justify-items:end;text-align:right;
+  min-height:44px;border-top:1px solid var(--line);
+}
+.sugg .all .t{color:var(--accent);font-size:var(--t-label);letter-spacing:.1em;text-transform:uppercase;font-weight:700}
 
 .search-sugg{margin-top:var(--sp-3);display:grid;gap:var(--sp-4)}
 .search-sugg section{display:grid;gap:var(--sp-2)}
@@ -326,7 +363,8 @@ section.block{margin-top:var(--sp-6)}
 }
 .resume:hover{border-color:var(--dim);box-shadow:var(--shadow-md);transform:translateY(-1px)}
 .resume::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);pointer-events:none}
-.resume .rcover{position:relative;width:clamp(84px,18vw,104px);aspect-ratio:2/3;background:var(--surface);overflow:hidden;border-radius:var(--r-sm);display:grid;place-items:center;flex:0 0 auto;box-shadow:var(--shadow-xs)}
+.resume .rcover{position:relative;width:clamp(84px,18vw,104px);aspect-ratio:2/3;background:var(--surface);overflow:hidden;border-radius:var(--r-sm);display:grid;place-items:center;flex:0 0 auto;box-shadow:var(--shadow-xs);transition:filter .15s var(--ease)}
+a.resume.rcover:hover{filter:brightness(1.12)}
 .resume .rcover img{width:100%;height:100%;object-fit:cover;object-position:center}
 .resume .rinfo{min-width:0;display:flex;flex-direction:column;justify-content:center}
 .resume .rtitle{font-size:var(--t-body);font-weight:700;line-height:1.3;letter-spacing:-.01em;
@@ -341,7 +379,8 @@ section.block{margin-top:var(--sp-6)}
 .resume .rwhen{font-size:var(--t-meta);color:var(--muted)}
 .resume .rgo{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-label);
   letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--text);white-space:nowrap;transition:color .15s var(--ease)}
-.resume:hover .rgo{color:var(--accent)}
+a.resume .rgo:hover{color:var(--accent)}
+.resume .rbody{color:inherit;text-decoration:none;min-width:0;display:flex;flex-direction:column;justify-content:center}
 .resume .ph,.r2c .ph{position:absolute;font-size:1.9rem;font-weight:800;color:var(--muted);opacity:.5}
 
 .rrow2{
@@ -350,14 +389,17 @@ section.block{margin-top:var(--sp-6)}
   transition:background .12s var(--ease),border-color .12s var(--ease);
 }
 .rrow2:hover{background:var(--surface);border-color:var(--line)}
-.rrow2 .r2c{position:relative;aspect-ratio:2/3;background:var(--surface);overflow:hidden;border-radius:var(--r-xs);display:grid;place-items:center}
+.rrow2 .r2c{position:relative;aspect-ratio:2/3;background:var(--surface);overflow:hidden;border-radius:var(--r-xs);display:grid;place-items:center;transition:filter .12s var(--ease)}
+a.rrow2 .r2c:hover{filter:brightness(1.12)}
+.rrow2 .r2body{color:inherit;text-decoration:none;min-width:0;display:flex;flex-direction:column}
+.rrow2 .r2body:hover strong{color:var(--accent)}
 .rrow2 .r2c img{width:100%;height:100%;object-fit:cover}
-.rrow2 .r2t{min-width:0;display:flex;flex-direction:column}
-.rrow2 .r2t strong{font-size:var(--t-sm);font-weight:600;line-height:1.3;
+.rrow2 .r2body{min-width:0;display:flex;flex-direction:column}
+.rrow2 .r2body strong{font-size:var(--t-sm);font-weight:600;line-height:1.3;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
-.rrow2 .r2t span{font-size:var(--t-meta);color:var(--muted);margin-top:1px}
-.rrow2 .r2go{color:var(--muted);transition:color .12s var(--ease),transform .12s var(--ease)}
-.rrow2:hover .r2go{color:var(--text);transform:translateX(2px)}
+.rrow2 .r2body span{font-size:var(--t-meta);color:var(--muted);margin-top:1px}
+a.rrow2 .r2go{color:var(--muted);transition:color .12s var(--ease),transform .12s var(--ease)}
+a.rrow2 .r2go:hover{color:var(--text);transform:translateX(2px)}
 
 
 .cont-main{position:relative}
@@ -430,14 +472,16 @@ section.block{margin-top:var(--sp-6)}
 
 .txt{min-width:0}
 
-.pager{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-6);flex-wrap:wrap}
-.pager .info{font-size:var(--t-meta);color:var(--muted);margin-inline:auto}
-.pager form{display:flex;gap:var(--sp-1)}
-.pager input{
-  width:64px;background:transparent;border:1px solid var(--line);border-radius:var(--r-sm);
-  padding:8px;font-size:var(--t-meta);text-align:center;transition:border-color .15s var(--ease),box-shadow .15s var(--ease);
-}
-.pager input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(215,255,79,.12)}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-top:var(--sp-6);width:100%}
+.pager .btn.icon{width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;flex:0 0 44px}
+.pager .btn.icon svg{width:18px;height:18px}
+.pager .p-mid{color:var(--accent);border:0;background:transparent}
+.pager .p-mid:hover{color:var(--accent-hover);background:rgba(215,255,79,.1)}
+.pager .p-mid svg{color:var(--accent);width:22px;height:22px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:var(--sp-2);padding:var(--sp-4);overflow-y:auto;max-height:55dvh;-webkit-overflow-scrolling:touch}
+.pgrid a{display:grid;place-items:center;height:44px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:var(--t-sm);font-weight:600;color:var(--text);background:var(--surface);transition:border-color .12s var(--ease),background .12s var(--ease),color .12s var(--ease)}
+.pgrid a:hover{border-color:var(--accent);color:var(--accent);background:var(--surface-hover)}
+.pgrid a[aria-current="page"]{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:700}
 
 /* States. */
 .state{padding:var(--sp-7) 0;text-align:center}
@@ -573,17 +617,23 @@ section.block{margin-top:var(--sp-6)}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chapters .when{font-size:var(--t-meta);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .chapters .badge-new{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--on-accent);background:var(--accent);padding:2px 7px;border-radius:999px}
+.chapters a.read{background:rgba(127,127,127,.07);opacity:.62}
+.chapters a.read:hover{opacity:.85}
 .chapters a.read .ch{color:var(--muted);font-weight:400}
 .chapters a.read .label{font-size:.6rem;letter-spacing:.1em;color:var(--accent);opacity:.8}
 .chapters a::before{content:"";width:5px;height:5px;border-radius:50%;flex:0 0 auto}
-.chapters a.read::before{background:var(--accent);opacity:.6}
+.chapters a.read::before{background:var(--accent);opacity:.45}
 .list-tools{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);margin-bottom:var(--sp-2);flex-wrap:wrap}
 
 
 .hist{display:flex;flex-direction:column}
-.hist a{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-top:1px solid var(--line);min-height:48px;transition:background .12s var(--ease)}
-.hist a:last-child{border-bottom:1px solid var(--line)}
-.hist a:hover{background:var(--surface)}
+.hist .hrow{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-top:1px solid var(--line);min-height:48px;transition:background .12s var(--ease)}
+.hist .hrow:last-child{border-bottom:1px solid var(--line)}
+.hist .hrow:hover{background:var(--surface)}
+.hist a.hcover{transition:filter .12s var(--ease)}
+.hist a.hcover:hover{filter:brightness(1.12)}
+.hist a.hbody{color:inherit;text-decoration:none;flex:1;min-width:0;display:flex;align-items:center;gap:var(--sp-3)}
+.hist a.hbody:hover .t{color:var(--accent)}
 .hist .t{flex:1;min-width:0;font-size:var(--t-sm);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hist .c{font-size:var(--t-meta);color:var(--muted);white-space:nowrap}
 .hist .hcover{position:relative;width:40px;aspect-ratio:2/3;background:var(--surface);border-radius:var(--r-xs);overflow:hidden;display:grid;place-items:center;flex:0 0 auto}
@@ -600,11 +650,17 @@ body[data-view="reader"] main{padding:0;max-width:none}
 body[data-view="reader"] .wrap{max-width:none;padding-inline:0}
 
 .pages{width:100%;background:#000}
-/* Pre-load min height keeps lazy images out of viewport until near. */
-   (yang membuat semua lazy image dianggap masuk viewport sekaligus).
-   Setelah load, min-height dilepas agar rasio asli halaman komik dipertahankan. */
-.pages img{display:block;width:100%;height:auto;background:#0e0e0e;min-height:60svh}
-.pages img.done{min-height:0}
+/* Placeholder (.pg) = indikator loading. Harus elemen TERPISAH dari <img>:
+   <img> ber-opacity:0 sampai decode penuh, jadi shimmer di atasnya tak akan
+   pernah terlihat. .pg yang menampilkan shimmer + menahan tinggi (min-height)
+   agar lazy image tidak dianggap masuk viewport sekaligus; tinggi asli
+   kembali setelah .done sehingga rasio halaman komik dipertahankan. */
+.pages .pg{display:block;position:relative;width:100%;background:#0e0e0e;min-height:60svh}
+.pages .pg:not(.done){background:linear-gradient(100deg,#0e0e0e 40%,#1b1b20 50%,#0e0e0e 60%);background-size:200% 100%;animation:shimmer 1.2s linear infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+.pages .pg.done{min-height:0;animation:none;background:#0e0e0e}
+.pages img{display:block;width:100%;height:auto;opacity:0;transition:opacity .25s var(--ease)}
+.pages img.done{opacity:1}
 .pages .pfail{padding:var(--sp-5);text-align:center;color:var(--muted);font-size:var(--t-meta)}
 @media (min-width:820px){
   .pages{max-width:780px;margin-inline:auto}
@@ -624,7 +680,7 @@ body:not(.chrome) .rbar.top{transform:translateY(-100%);opacity:0}
 .rbar .inner{display:flex;align-items:center;gap:var(--sp-2);min-height:52px;padding-block:5px;padding-inline:var(--sp-3);
   max-width:820px;margin-inline:auto}
 .rbar .rmeta{flex:1;min-width:0;line-height:1.3}
-.rbar .rmeta strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+.rbar .rmeta strong{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
   overflow:hidden;font-size:var(--t-meta);font-weight:600;line-height:1.3}
 .rbar .rmeta span{font-size:var(--t-label);color:var(--muted)}
 .rbar .icon-btn:hover{border-color:rgba(255,255,255,.25)}
@@ -697,6 +753,9 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
   transition:color .12s var(--ease)}
 .sheet .slist a:hover{color:var(--text)}
 .sheet .slist a[aria-current="true"]{color:var(--accent);font-weight:700}
+.sheet .slist a.read{opacity:.6;background:rgba(127,127,127,.07)}
+.sheet .slist a.read:hover{opacity:.85}
+.sheet .slist a.read .rd{font-size:.62rem;font-weight:700;color:var(--accent);margin-left:6px;letter-spacing:.05em}
 .scrim{position:fixed;inset:0;z-index:75;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .2s var(--ease)}
 .scrim[data-open="true"]{opacity:1;pointer-events:auto}
 
@@ -762,8 +821,9 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
       <a class="brand" href="/" aria-label="Zomic — home">Zomic<i aria-hidden="true"></i></a>
 
       <nav class="desknav" id="desknav" aria-label="Main navigation"></nav>
-      <form class="search search-inline" data-search role="search">
+      <form class="search search-inline" data-search role="search" autocomplete="off">
         <input type="search" name="q" placeholder="Search comic titles…" aria-label="Search comics" autocomplete="off">
+        <div class="sugg" id="sugg-0" role="listbox" aria-label="Search suggestions" hidden></div>
       </form>
 
       <button class="icon-btn" id="searchToggle" aria-expanded="false" aria-controls="searchRow" aria-label="Search comics">
@@ -772,9 +832,9 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
     </div>
 
     <div class="search-row" id="searchRow">
-      <form class="search" data-search role="search">
-        <input type="search" name="q" placeholder="Search titles, authors…" aria-label="Search comics" autocomplete="off">
-        <button class="go" type="submit">Search</button>
+      <form class="search" data-search role="search" autocomplete="off">
+        <input type="search" name="q" placeholder="Search comic titles, authors…" aria-label="Search comics" autocomplete="off">
+        <div class="sugg" id="sugg-1" role="listbox" aria-label="Search suggestions" hidden></div>
       </form>
     </div>
   </div>
@@ -900,7 +960,7 @@ const readKey = s => 'zomic:read:' + s;
 const readSet = s => new Set(store.get(readKey(s), []));
 function markRead(slug, ch) {
   const set = readSet(slug); set.add(String(ch));
-  store.set(readKey(s), [...set]);
+  store.set(readKey(slug), [...set]);
 }
 const posKey = s => 'zomic:pos:' + s;
 const readPos = s => store.get(posKey(s), null);
@@ -1009,16 +1069,29 @@ const railOf = items => {
 
 function pager(page, hasNext, hrefFor, totalPages) {
   const cur = Number(page) || 1;
+  const total = Number(totalPages) || 0;
+  const count = Math.min(total > 0 ? total : (hasNext ? cur + 5 : cur), 500);
   return `<nav class="pager" aria-label="Page navigation">
-    ${cur > 1 ? `<a class="btn sm" href="${hrefFor(cur - 1)}" rel="prev">${icon('chevL')} Prev</a>`
-              : `<span class="btn sm" aria-disabled="true">${icon('chevL')} Prev</span>`}
-    <span class="info mono">${totalPages ? `${cur} / ${totalPages}` : `Pp. ${cur}`}</span>
-    ${hasNext ? `<a class="btn sm" href="${hrefFor(cur + 1)}" rel="next">Next ${icon('chevR')}</a>`
-              : `<span class="btn sm" aria-disabled="true">Next ${icon('chevR')}</span>`}
-    ${totalPages > 1 ? `<form data-jump="${esc(hrefFor('__P__'))}">
-      <input class="mono" type="number" min="1" max="${totalPages}" placeholder="Pp." aria-label="Jump to page">
-      <button class="btn sm" type="submit">Go</button></form>` : ''}
-  </nav>`;
+    ${cur > 1 ? `<a class="btn icon" href="${hrefFor(cur - 1)}" rel="prev" aria-label="Previous page">${icon('chevL')}</a>`
+              : `<span class="btn icon" aria-disabled="true" aria-label="Previous page">${icon('chevL')}</span>`}
+    <button class="btn icon p-mid" type="button" data-open-pagesheet aria-label="Pilih halaman" aria-haspopup="dialog" aria-expanded="false">
+      ${icon('list')}
+    </button>
+    ${hasNext ? `<a class="btn icon" href="${hrefFor(cur + 1)}" rel="next" aria-label="Next page">${icon('chevR')}</a>`
+              : `<span class="btn icon" aria-disabled="true" aria-label="Next page">${icon('chevR')}</span>`}
+  </nav>
+  <div class="scrim" id="pScrim" data-close-pagesheet></div>
+  <div class="sheet psheet" id="pSheet" role="dialog" aria-modal="true" aria-label="Pilih halaman" aria-hidden="true" inert>
+    <div class="shead">
+      <span class="label">Pilih Halaman ${total > 0 ? `(1 – ${total})` : ''}</span>
+      <button class="icon-btn" data-close-pagesheet aria-label="Tutup">${svg('x')}</button>
+    </div>
+    <div class="pgrid">
+      ${Array.from({ length: count }, (_, i) => i + 1).map(n =>
+        `<a href="${hrefFor(n)}" ${n === cur ? 'aria-current="page"' : ''}>${n}</a>`
+      ).join('')}
+    </div>
+  </div>`;
 }
 
 const head = (label, title, sub = '') => `<div class="page-head">
@@ -1039,8 +1112,9 @@ function contPct(e) {
 }
 function resumeCard(e) {
   const pct = contPct(e);
-  return `<a class="resume" href="${readHref(e.slug, e.ch)}">
-    <span class="rcover"><span class="ph">${initials(e.title)}</span>${e.cover ? coverImg(e.cover, 200, S_RESUME) : ''}</span>
+  return `<div class="resume">
+    <a class="rcover" href="${detailHref(e.slug)}" aria-label="Open ${esc(e.title)} details"><span class="ph">${initials(e.title)}</span>${e.cover ? coverImg(e.cover, 200, S_RESUME) : ''}</a>
+    <a class="rbody" href="${readHref(e.slug, e.ch)}" aria-label="Continue ${esc(e.title)} chapter ${esc(e.ch)}">
     <span class="rinfo">
       <strong class="rtitle">${esc(e.title)}</strong>
       <span class="rcap">Chapter ${esc(e.ch)}${e.total ? `${DOT}of ${esc(e.total)}` : ''}</span>
@@ -1048,14 +1122,15 @@ function resumeCard(e) {
         <span class="rrow"><span class="rwhen">Last read${DOT}${esc(timeAgo(e.at))}</span><span class="rgo">Continue ${icon('play')}</span></span>`
         : `<span class="rrow"><span class="rwhen">Last read${DOT}Chapter ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span><span class="rgo">Continue ${icon('play')}</span></span>`}
     </span>
-  </a>`;
+    </a>
+  </div>`;
 }
 function resumeRow(e) {
-  return `<a class="rrow2" href="${readHref(e.slug, e.ch)}">
-    <span class="r2c">${e.cover ? coverImg(e.cover, 140, S_R2) : `<span class="ph">${initials(e.title)}</span>`}</span>
-    <span class="r2t"><strong>${esc(e.title)}</strong><span>Chapter ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span></span>
-    <span class="r2go">${icon('chevR')}</span>
-  </a>`;
+  return `<div class="rrow2">
+    <a class="r2c" href="${detailHref(e.slug)}" aria-label="Open ${esc(e.title)} details">${e.cover ? coverImg(e.cover, 140, S_R2) : `<span class="ph">${initials(e.title)}</span>`}</a>
+    <a class="r2body" href="${readHref(e.slug, e.ch)}" aria-label="Continue ${esc(e.title)} chapter ${esc(e.ch)}"><strong>${esc(e.title)}</strong><span>Chapter ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span></a>
+    <a class="r2go" href="${readHref(e.slug, e.ch)}" aria-label="Continue ${esc(e.title)}">${icon('chevR')}</a>
+  </div>`;
 }
 
 async function pageHome() {
@@ -1164,9 +1239,11 @@ function wirePopularTabs() {
 
 
 async function pagePopuler() {
+  const gen = _routeGen;
   view.innerHTML = head('Popular', 'Popular comics') + skelGrid(8);
   try {
     const groups = await api('/api/popular');
+    if (gen !== _routeGen) return; // stale render, route moved on
     let html = '';
     const total = groups.reduce((n, g) => n + g.items.length, 0);
     html += head('Popular', 'Popular comics', `${total} most popular titles this week`);
@@ -1207,12 +1284,14 @@ async function pageCatalog(page, params) {
   </div>`;
   const title = TYPES.find(([v]) => v === type)?.[1] || 'Comics';
   const h = head('Catalog', title === 'Comics' ? 'Comics' : title);
+  const gen = _routeGen;
   view.innerHTML = h + filters + skelGrid(10);
   try {
     const qs = new URLSearchParams({ page });
     if (type) qs.set('type', type);
     if (letter) qs.set('letter', letter);
     const d = await api('/api/catalog?' + qs);
+    if (gen !== _routeGen) return; // stale render, route moved on
     const sub = joinDot([
       d.total ? d.total.toLocaleString() + ' titles' : '',
       d.total_pages ? d.total_pages + ' pages' : '',
@@ -1226,9 +1305,11 @@ async function pageCatalog(page, params) {
 async function pageSearch(query, page) {
   $$('[data-search] input').forEach(i => { i.value = query; });
   const h = head('Search', `Results for "${query}"`, 'Type a manga, manhwa, manhua title to search');
+  const gen = _routeGen;
   view.innerHTML = h + skelGrid(6);
   try {
     const d = await api(`/api/search?q=${encodeURIComponent(query)}&page=${page}`);
+    if (gen !== _routeGen) return; // stale render, route moved on
     const countSub = `${d.items.length} results on page ${d.page}`;
     view.innerHTML = head('Search', `Results for "${query}"`, countSub) +
       (d.items.length ? gridOf(d.items) : empty('Not found', `No titles match "${query}". Try a different keyword or change the filter.`)) +
@@ -1237,9 +1318,11 @@ async function pageSearch(query, page) {
 }
 
 async function pageGenres() {
+  const gen = _routeGen;
   view.innerHTML = head('Explore', 'Genre') + skelGrid(4);
   try {
     const list = await api('/api/genres');
+    if (gen !== _routeGen) return; // stale render, route moved on
     view.innerHTML = head('Explore', 'Genre', `${list.length} categories`) +
       `<div class="glist">${list.map(g =>
         `<a href="/genre/${encodeURIComponent(g.slug)}">${esc(g.name)}</a>`).join('')}</div>`;
@@ -1248,9 +1331,11 @@ async function pageGenres() {
 
 async function pageGenre(slug, page) {
   const name = slug.replace(/-/g, ' ');
+  const gen = _routeGen;
   view.innerHTML = head('Genre', name) + skelGrid(6);
   try {
     const d = await api(`/api/genre/${encodeURIComponent(slug)}?page=${page}`);
+    if (gen !== _routeGen) return; // stale render, route moved on
     const title = d.name || name.replace(/\b\w/g, c => c.toUpperCase());
     view.innerHTML = head('Genre', title, `<a class="link" href="/genre">All genres</a>`) +
       gridOf(d.items) + pager(d.page, d.has_next, p => `/genre/${encodeURIComponent(slug)}?page=${p}`);
@@ -1279,10 +1364,11 @@ function pageKoleksi(params, forceTab) {
     head('Collection', 'Reading history', h.length ? `${h.length} titles` : '') + tabs +
     (h.length ? `<div class="list-tools"><span class="label">Last read</span>
         <button class="btn sm" id="clearHist">Clear all</button></div>
-      <div class="hist">${h.map(e => `<a href="${readHref(e.slug, e.ch)}">
-        <span class="hcover">${e.cover ? coverImg(e.cover, 140, S_HIST) : `<span class="ph">${initials(e.title)}</span>`}</span>
+      <div class="hist">${h.map(e => `<div class="hrow">
+        <a class="hcover" href="${detailHref(e.slug)}" aria-label="Open ${esc(e.title)} details">${e.cover ? coverImg(e.cover, 140, S_HIST) : `<span class="ph">${initials(e.title)}</span>`}</a>
+        <a class="hbody" href="${readHref(e.slug, e.ch)}" aria-label="Continue ${esc(e.title)} chapter ${esc(e.ch)}">
         <span class="t">${esc(e.title)}</span>
-        <span class="c">Ch. ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span></a>`).join('')}</div>`
+        <span class="c">Ch. ${esc(e.ch)}${DOT}${esc(timeAgo(e.at))}</span></a></div>`).join('')}</div>`
       : empty('No history yet', 'Chapters you read will appear here.'));
   const btn = $('#clearHist');
   if (btn) btn.onclick = () => { store.set('zomic:history', []); pageKoleksi(null, 'history'); };
@@ -1292,11 +1378,13 @@ function pageKoleksi(params, forceTab) {
 const FACTS = [['status', 'Status'], ['type', 'Type'], ['author', 'Author'], ['rating', 'Rating']];
 
 async function pageDetail(slug) {
+  const gen = _routeGen;
   view.innerHTML = `<div class="dhead" aria-hidden="true"><div class="skel skel-cover"></div>
     <div><div class="skel skel-line title"></div>
     <div class="skel skel-line w55"></div></div></div>`;
   try {
     const d = await api(`/api/detail/${encodeURIComponent(slug)}`);
+    if (gen !== _routeGen) return; // stale render, route moved on (jangan timpa reader dgn cover)
     const chapters = (d.chapters || []).filter(c => c.ch);
     const read = readSet(slug);
     const genres = (Array.isArray(d.genre) ? d.genre : String(d.genre || '').split(/\s{2,}|,/)).filter(Boolean);
@@ -1424,6 +1512,7 @@ let readerNav = null;
 let readerObserver = null;
 
 async function pageReader(slug, ch) {
+  const gen = _routeGen;
   document.body.dataset.view = 'reader';
   view.innerHTML = `<div class="state"><p class="label">Loading chapter ${esc(ch)}</p></div>`;
   try {
@@ -1431,6 +1520,7 @@ async function pageReader(slug, ch) {
       api(`/api/chapter/${encodeURIComponent(slug)}/${encodeURIComponent(ch)}`),
       api(`/api/detail/${encodeURIComponent(slug)}`).catch(() => null),
     ]);
+    if (gen !== _routeGen) return; // stale render, route moved on
     const pages = Array.isArray(imgs) ? imgs : (imgs.images || []);
     const chapters = (detail?.chapters || []).filter(c => c.ch);
     const i = chapters.findIndex(c => String(c.ch) === String(ch));
@@ -1447,7 +1537,7 @@ async function pageReader(slug, ch) {
     view.innerHTML = `
       <div class="rbar top">
         <div class="inner">
-          <a class="icon-btn" href="${back}" aria-label="Back to comic detail">${svg('arrowL')}</a>
+          <a class="icon-btn" href="${back}" data-back aria-label="Back to comic detail">${svg('arrowL')}</a>
           <span class="rmeta"><strong>${esc(title)}</strong><span>Chapter ${esc(ch)}</span></span>
           <button class="icon-btn" id="sheetBtn" aria-label="Chapter list" aria-expanded="false" aria-controls="sheet">${svg('list')}</button>
         </div>
@@ -1455,16 +1545,15 @@ async function pageReader(slug, ch) {
       </div>
 
       <div class="pages" id="pages">${pages.map((u, n) =>
-        `<img data-src="${IMG(u)}" data-pg="${n}" alt="Page ${n + 1}" ${n < 3 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
-          onload="this.classList.add('done')"
-          onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.dataset.src;}else{this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Page ${n + 1} failed to load'}))}">`).join('')}
+        `<div class="pg" data-pg="${n}"><img data-src="${IMG(u)}" data-pg="${n}" alt="Page ${n + 1}" ${n < 3 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
+          onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.dataset.src;}else{this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Page ${n + 1} failed to load'}))}"></div>`).join('')}
       </div>
 
       <div class="rend">
         <p class="label">Chapter ${esc(ch)} finished</p>
         <div class="actions nav3">
           <span class="side left">${fnav(prev, -1)}</span>
-          <a class="btn" href="${back}">Detail</a>
+          <a class="btn" href="${back}" data-back>Detail</a>
           <span class="side right">${fnav(next, 1)}</span>
         </div>
       </div>
@@ -1478,10 +1567,12 @@ async function pageReader(slug, ch) {
       <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Chapter list" aria-hidden="true" inert>
         <div class="shead"><span class="label">${chapters.length} chapter</span>
           <button class="icon-btn" id="sheetClose" aria-label="Close chapter list">${svg('x')}</button></div>
-        <div class="slist">${[...chapters].reverse().map(c =>
-          `<a href="${readHref(slug, c.ch)}" aria-current="${String(c.ch) === String(ch)}">
-            <span>${esc(c.title || 'Chapter ' + c.ch)}</span>
-            <span class="muted mono">${esc(c.date || '')}</span></a>`).join('')}</div>
+        <div class="slist">${[...chapters].reverse().map(c => {
+          const done = readSet(slug).has(String(c.ch));
+          const cur = String(c.ch) === String(ch);
+          return `<a href="${readHref(slug, c.ch)}" aria-current="${cur}" class="${done && !cur ? 'read' : ''}">
+            <span>${esc(c.title || 'Chapter ' + c.ch)}${done && !cur ? '<span class="rd">\u2713</span>' : ''}</span>
+            <span class="muted mono">${esc(c.date || '')}</span></a>`}).join('')}</div>
       </div>`;
 
     window.scrollTo(0, 0);
@@ -1495,16 +1586,21 @@ async function pageReader(slug, ch) {
     chromeTimer = setTimeout(() => showChrome(false), 5000);
     mountReaderImages();
     // Restore last scroll position for this chapter, after first paint.
-    // Unfinished chapters are not marked read here; completion is recorded
-    // only when the end block scrolls into view (finishObserver below).
+    // Sudah ditandai dibaca saat dibuka (markRead di atas); blok akhir
+    // hanya untuk menandai selesai penuh bila diperlukan.
     const saved = readPos(slug);
     if (saved && String(saved.ch) === String(ch) && saved.y > 40) {
       requestAnimationFrame(() => requestAnimationFrame(() => {
         window.scrollTo(0, saved.y);
       }));
     }
-    // Completion + position tracking. markRead fires once at the end block;
-    // savePos throttles to one write per second while scrolling.
+    // Chapter dianggap dibaca begitu dibuka: tandai langsung, tanpa ambang
+    // scroll. Position tracking (savePos) tetap jalan untuk resume.
+    markRead(slug, ch);
+    clearPos(slug);
+    // Dipanggil route() saat pindah halaman (prev/next chapter, back ke
+    // detail, dsb): scroll listener lama ikut dibersihkan saat view diganti.
+    window.__readerExit = () => { window.removeEventListener('scroll', saveTick); };
     let posTick = 0;
     const maxScroll = () => Math.max(1, document.body.scrollHeight - window.innerHeight);
     const finishObserver = ('IntersectionObserver' in window) ? new IntersectionObserver(en => {
@@ -1526,6 +1622,17 @@ async function pageReader(slug, ch) {
     });
 
     const sheet = $('#sheet'), scrim = $('#scrim'), sheetBtn = $('#sheetBtn');
+    const renderSheetList = () => {
+      const list = $('.slist', sheet);
+      if (!list) return;
+      const read = readSet(slug);
+      list.innerHTML = [...chapters].reverse().map(c => {
+        const done = read.has(String(c.ch));
+        const cur = String(c.ch) === String(ch);
+        return `<a href="${readHref(slug, c.ch)}" aria-current="${cur}" class="${done && !cur ? 'read' : ''}">
+          <span>${esc(c.title || 'Chapter ' + c.ch)}${done && !cur ? '<span class="rd">\u2713</span>' : ''}</span>
+          <span class="muted mono">${esc(c.date || '')}</span></a>`}).join('');
+    };
     const setSheet = open => {
       sheet.dataset.open = String(open);
       scrim.dataset.open = String(open);
@@ -1533,6 +1640,8 @@ async function pageReader(slug, ch) {
       sheet.toggleAttribute('inert', !open);
       sheetBtn.setAttribute('aria-expanded', String(open));
       if (open) {
+        renderSheetList(); // segarkan dari readSet terkini (markRead bisa
+        // terjadi setelah sheet pertama di-render)
         showChrome(true); clearTimeout(chromeTimer);
         const cur = $('.slist a[aria-current="true"]', sheet);
         if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'center' });
@@ -1581,38 +1690,109 @@ async function pageReader(slug, ch) {
 let chromeTimer = null, lastY = 0, ticking = false, closeSheet = null, tapScrollBlock = false;
 function showChrome(on) { document.body.classList.toggle('chrome', on); }
 
-/* Reader buffering: data-src fills near viewport, 3-page lookahead preloads. */
+/* Reader buffering: .pg placeholder (indikator loading) meng-<img> di dalamnya. */
 function mountReaderImages() {
   if (readerObserver) readerObserver.disconnect();
-  const imgs = $$('#pages img');
-  if (!imgs.length) return;
-  const load = (img, src) => {
-    if (!img || img.dataset.loaded) return;
-    img.dataset.loaded = '1';
-    img.src = src;
+  const slots = $$('#pages .pg');
+  if (!slots.length) return;
+  // Pasangkan wrapper + <img>-nya; buang slot yang img-nya sudah hilang.
+  const pairs = slots
+    .map(s => ({ slot: s, img: s.querySelector('img') }))
+    .filter(p => p.img);
+  if (!pairs.length) return;
+  const imgs = pairs.map(p => p.img);
+  const slotOf = img => pairs.find(p => p.img === img)?.slot || img.closest('.pg');
+  // Decode-then-show: gambar tetap opacity 0 (placeholder .pg ber-den) selama
+  // byte mengalir, baru tampil setelah browser selesai decode frame PENUH.
+  // JPEG dari CDN bersifat PROGRESIF (SOF2, ~3 scan) — kalau ditampilkan saat
+  // decode belum selesai, Chrome merender scan kasar dulu lalu memperbaikinya →
+  // terlihat "thumbnail yang membesar". Karena itu TIDAK ADA fallback yang
+  // menampilkan gambar tanpa decode; kalau decode() reject, dicoba ulang
+  // (max 3x) dengan jeda, baru tampil paksa setelah img.complete.
+  const show = img => {
+    img.classList.add('done');
+    // Placeholder ikut done → shimmer berhenti & min-height dilepas, tinggi
+    // kembali mengikuti rasio asli halaman komik.
+    slotOf(img)?.classList.add('done');
   };
-  // First 3 pages load immediately for fast LCP.
-  const EAGER = 3, LOOKAHEAD = 3;
-  imgs.forEach((img, i) => {
-    if (i < EAGER) load(img, img.dataset.src);
-  });
+  const showWhenReady = img => {
+    if (!img || img.dataset.shown) return;
+    img.dataset.shown = '1';
+    // Double rAF: pastikan frame ter-commit ke layar SEBELUM opacity naik,
+    // supaya tidak pernah ada frame dengan gambar setengah jadi.
+    const reveal = () => requestAnimationFrame(() => requestAnimationFrame(() => show(img)));
+    let tries = 0;
+    const attempt = () => {
+      if (!img.complete) { img.addEventListener('load', attempt, { once: true }); return; }
+      let p;
+      try { p = img.decode(); }
+      catch { reveal(); return; }
+      if (p && p.then) {
+        p.then(reveal, () => {
+          if (++tries < 3) setTimeout(attempt, 80); // decode belum siap, ulangi
+          else reveal();                            // sudah complete, tampil
+        });
+      } else reveal();
+    };
+    attempt();
+  };
+  // Antrean bertahap anti-spike: maksimal 2 unduhan paralel + jeda antar
+  // start, prioritas = urutan halaman. Menggantikan pola lama (3 eager
+  // sekaligus + warm 3 Image paralel) yang menghantam sinyal sekaligus.
+  const MAX_PARALLEL = 2, START_GAP = 120;
+  const inFlight = new Set();
+  const queue = [];
+  let lastStart = 0;
+  const pump = () => {
+    while (inFlight.size < MAX_PARALLEL && queue.length) {
+      const img = queue.shift();
+      if (!img || img.dataset.loaded) continue;
+      inFlight.add(img);
+      const wait = Math.max(0, START_GAP - (performance.now() - lastStart));
+      lastStart = performance.now() + wait;
+      setTimeout(() => load(img, img.dataset.src), wait);
+    }
+  };
+  const settle = img => { if (inFlight.delete(img)) pump(); };
+  const enqueue = img => {
+    if (!img || img.dataset.loaded || img.dataset.queued) return;
+    img.dataset.queued = '1';
+    // Sisip berdasar nomor halaman agar tampil tetap berurutan.
+    const pg = Number(img.dataset.pg) || 0;
+    let at = queue.findIndex(q => (Number(q.dataset.pg) || 0) > pg);
+    if (at < 0) at = queue.length;
+    queue.splice(at, 0, img);
+    pump();
+  };
+  const load = (img, src) => {
+    if (!img || img.dataset.loaded) { settle(img); return; }
+    img.dataset.loaded = '1';
+    // Reference wrapper diambil SEBELUM request: saat gambar gagal total, <img>
+    // dilepas dari DOM (onerror inline) sehingga closest('.pg') jadi null.
+    const slot = slotOf(img);
+    img.addEventListener('load', () => { showWhenReady(img); settle(img); }, { once: true });
+    // Gagal → placeholder jangan menggantung ber-den 60svh; lepaskan juga.
+    img.addEventListener('error', () => { slot?.classList.add('done'); settle(img); }, { once: true });
+    img.src = src;
+    // Gambar cache bisa selesai sebelum listener terpasang.
+    if (img.complete && img.naturalWidth) showWhenReady(img);
+    setTimeout(() => settle(img), 15000); // pengaman slot tak macet
+  };
+  // Halaman pertama langsung antre terdepan (LCP cepat via pump instan).
+  enqueue(imgs[0]);
+  // Observe WRAPPER .pg, bukan <img>: sebelum load, <img> tinggi-nya 0
+  // (min-height ada di .pg) dan IO pada elemen nol-tinggi tidak andal.
   readerObserver = new IntersectionObserver(entries => {
     entries.forEach(en => {
-      const img = en.target;
-      if (!en.isIntersecting || img.dataset.loaded) return;
-      load(img, img.dataset.src);
-      const n = Number(img.dataset.pg) || 0;
-      for (let k = 1; k <= LOOKAHEAD; k++) {
-        const nx = imgs[n + k];
-        if (nx && !nx.dataset.loaded && !nx.dataset.warm) {
-          nx.dataset.warm = '1';
-          const im = new Image();
-          im.src = nx.dataset.src;
-        }
-      }
+      const pair = pairs.find(p => p.slot === en.target);
+      if (!pair || !en.isIntersecting || pair.img.dataset.loaded) return;
+      enqueue(pair.img);
+      // Lookahead: cukup 1 halaman berikut, ikut antre (tak langsung tembak).
+      const n = Number(pair.img.dataset.pg) || 0;
+      if (imgs[n + 1]) enqueue(imgs[n + 1]);
     });
-  }, { rootMargin: '1700px 0px' });
-  imgs.forEach(img => { if (Number(img.dataset.pg) >= EAGER) readerObserver.observe(img); });
+  }, { rootMargin: '800px 0px' });
+  pairs.forEach((p, i) => { if (p.img !== imgs[0]) readerObserver.observe(p.slot); });
 }
 
 /* Autoscroll. */
@@ -1715,14 +1895,32 @@ let _navCount = 0;
 let _routeGen = 0; // bumped per route() to cancel stale renders
 
 function go(url, replace = false) {
-  if (replace) window.history.replaceState(null, '', url);
-  else window.history.pushState(null, '', url);
+  const curSeg = location.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  const nextSeg = url.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent);
+
+  if (curSeg[0] === 'read' && nextSeg[0] === 'read' && curSeg[1] === nextSeg[1]) {
+    replace = true;
+  } else if (curSeg[0] === 'read' && nextSeg[0] === 'manga' && curSeg[1] === nextSeg[1] && _navCount > 0) {
+    window.history.back();
+    return;
+  } else if (nextSeg[0] === 'read' && nextSeg[1]) {
+    const detail = `/manga/${encodeURIComponent(nextSeg[1])}`;
+    if (location.pathname !== detail) {
+      window.history.pushState({ inReader: false }, '', detail);
+      _navCount++;
+    }
+  }
+
+  const state = nextSeg[0] === 'read' ? { inReader: true } : { inReader: false };
+  if (replace) window.history.replaceState(state, '', url);
+  else window.history.pushState(state, '', url);
   if (!replace) _navCount++;
   route();
 }
 
 function route() {
   _routeGen++;
+  if (window.__readerExit) { try { window.__readerExit(); } catch {} window.__readerExit = null; }
   readerNav = null;
   if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
   closeSheet = null;
@@ -1757,9 +1955,213 @@ window.addEventListener('popstate', () => { _navCount = Math.max(0, _navCount - 
 $$('[data-search]').forEach(f => f.addEventListener('submit', e => {
   e.preventDefault();
   const q = f.querySelector('input').value.trim();
-  if (q) go(`/search?q=${encodeURIComponent(q)}`);
+  if (!q) return;
+  // Enter saat ada saran yang aktif = buka tujuan saran itu, bukan halaman hasil.
+  const pick = pickSuggest(f);
+  if (pick) { closeSuggest(f); f.querySelector('input').blur(); go(pick._go || detailHref(pick.slug)); return; }
+  go(`/search?q=${encodeURIComponent(q)}`);
   f.querySelector('input').blur();
 }));
+
+/* --- Search typeahead (dropdown judul sesuai keyword) ---
+   Satu modul untuk kedua form search (desktop .search-inline & mobile
+   .search-row). Fetch punya signal sendiri supaya request yang sudah
+   berjalan bisa dibatalkan saat user mengetik lagi (tidak ada balasan
+   basi yang menimpa render terbaru). */
+const SUGG_MIN_CHARS = 2;
+const SUGG_DEBOUNCE_MS = 300;
+const SUGG_MAX = 4;
+const SUGG_MAX_CACHE = 50;
+const suggCache = new Map();   // query -> items (bounded, LRU-ish by delete)
+
+function suggCacheGet(q) {
+  if (!suggCache.has(q)) return null;
+  const v = suggCache.get(q);
+  suggCache.delete(q); suggCache.set(q, v);   // tandai baru dipakai
+  return v;
+}
+function suggCacheSet(q, items) {
+  suggCache.set(q, items);
+  while (suggCache.size > SUGG_MAX_CACHE) suggCache.delete(suggCache.keys().next().value);
+}
+
+/* Highlight substring yang cocok. Input user di-escape dulu, lalu teks asli
+   dipecah per case-insensitive match; tiap bagian di-escape terpisah. */
+function markTitle(title, q) {
+  const t = String(title || '');
+  const needle = q.trim().toLowerCase();
+  if (!needle) return esc(t);
+  const low = t.toLowerCase();
+  let out = '', i = 0;
+  for (;;) {
+    const at = low.indexOf(needle, i);
+    if (at < 0) { out += esc(t.slice(i)); break; }
+    out += esc(t.slice(i, at)) + '<mark>' + esc(t.slice(at, at + needle.length)) + '</mark>';
+    i = at + needle.length;
+  }
+  return out;
+}
+
+async function fetchSuggest(q, signal) {
+  const res = await fetch('/api/search?q=' + encodeURIComponent(q), { signal });
+  if (!res.ok) throw new Error('sugg ' + res.status);
+  const d = await res.json();
+  return Array.isArray(d.items) ? d.items : [];
+}
+
+// Thumbnail saran: satu ukuran tetap tanpa srcset — cover di dropdown hanya
+// 40px (2/3) sehingga varian 240/400/800 milik grid utama tidak berguna.
+// w=120 adalah MINIMUM yang diizinkan backend /api/img (Query ge=120); angka
+// di bawah itu dijawab 422 dan cover tidak akan muncul sama sekali.
+const suggThumb = u => u
+  ? `<img data-cover loading="lazy" decoding="async" src="${opt(u, 120)}" alt="" onerror="this.remove()">`
+  : '';
+
+function wireSuggest(form) {
+  const input = form.querySelector('input');
+  const panel = form.querySelector('.sugg');
+  if (!input || !panel) return;
+  // id panel dipakai aria-controls; input harus unik per form.
+  const opts = [];            // item pada render terakhir
+  let cur = -1;               // index opsi aktif (-1 = tidak ada)
+  let timer = null;
+  let ctl = null;
+  let lastQ = '';
+
+  function open() {
+    panel.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+  }
+  function close() {
+    panel.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    cur = -1;
+  }
+  function setCur(i) {
+    opts.forEach((_, n) => {
+      const el = panel.children[n];
+      if (el && el.setAttribute) el.setAttribute('aria-selected', String(n === i));
+    });
+    cur = i;
+    if (i >= 0 && panel.children[i] && panel.children[i].scrollIntoView) {
+      panel.children[i].scrollIntoView({ block: 'nearest' });
+    }
+    input.setAttribute('aria-activedescendant', i >= 0 ? panel.id + '-o' + i : '');
+  }
+  // Dipakai oleh handler submit global: item yang sedang aktif untuk dibuka,
+  // dan closure close asli (bukan sekadar flag state) supaya panel benar-benar
+  // tertutup saat navigasi. Setiap opsi punya _go = URL tujuan.
+  form._pick = () => (cur >= 0 ? opts[cur] : null);
+  form._close = close;
+
+  function render(q, items) {
+    opts.length = 0;
+    panel.innerHTML = '';
+    if (!items.length) {
+      panel.innerHTML = `<p class="none">No titles match &ldquo;${esc(q)}&rdquo;</p>`;
+      open();
+      return;
+    }
+    items.slice(0, SUGG_MAX).forEach((it, n) => {
+      const slug = it.slug;
+      if (!slug) return;
+      const go = detailHref(slug);
+      it._go = go;
+      opts.push(it);
+      const a = document.createElement('a');
+      a.href = go;
+      a.id = panel.id + '-o' + (opts.length - 1);
+      a.setAttribute('role', 'option');
+      a.setAttribute('aria-selected', 'false');
+      a.innerHTML = `<span class="sc">${it.cover ? suggThumb(it.cover) : `<span class="ph">${initials(it.title)}</span>`}</span>
+        <span class="st"><span class="t">${markTitle(it.title, q)}</span></span>`;
+      panel.appendChild(a);
+    });
+    // Baris terakhir: "See all results". Baris ini ikut masuk opts (index
+    // terakhir) lalu diputar ArrowUp/Down seperti hasil biasa, jadi bisa
+    // dijangkau keyboard; _go-nya arah ke halaman hasil, bukan detail.
+    const allGo = `/search?q=${encodeURIComponent(q)}`;
+    const seeAll = { slug: '', title: 'See all results', _go: allGo };
+    opts.push(seeAll);
+    const a2 = document.createElement('a');
+    a2.className = 'all';
+    a2.href = allGo;
+    a2.id = panel.id + '-o' + (opts.length - 1);
+    a2.setAttribute('role', 'option');
+    a2.setAttribute('aria-selected', 'false');
+    a2.innerHTML = `<span class="t">See all results</span>`;
+    panel.appendChild(a2);
+    setCur(-1);
+    open();
+  }
+
+  function lookup(q) {
+    lastQ = q;
+    const hit = suggCacheGet(q);
+    if (hit) { render(q, hit); return; }
+    if (ctl) ctl.abort();
+    ctl = new AbortController();
+    const mine = ctl;
+    fetchSuggest(q, mine.signal)
+      .then(items => {
+        if (mine.signal.aborted || lastQ !== q) return;   // sudah basi
+        suggCacheSet(q, items);
+        render(q, items);
+      })
+      .catch(() => { /* batal/timeout: biarkan panel apa adanya */ });
+  }
+
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-controls', panel.id);
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('autocomplete', 'off');
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    clearTimeout(timer);
+    if (q.length < SUGG_MIN_CHARS) { if (ctl) ctl.abort(); close(); return; }
+    timer = setTimeout(() => lookup(q), SUGG_DEBOUNCE_MS);
+  });
+
+  // Fokus lagi dengan query yang sama: tampilkan hasil cache tanpa fetch.
+  input.addEventListener('focus', () => {
+    const q = input.value.trim();
+    if (q.length >= SUGG_MIN_CHARS && suggCacheGet(q)) lookup(q);
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { close(); return; }
+    if (panel.hidden || !opts.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setCur((cur + 1) % opts.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setCur(cur <= 0 ? opts.length - 1 : cur - 1);
+    } else if (e.key === 'Enter' && cur >= 0) {
+      e.preventDefault();          // submit handler yang membuka item
+    }
+  });
+
+  // Klik di dalam panel: cegah blur lebih dulu (pointerdown), lalu navigasi
+  // lewat router yang sudah ada (tDelegasi a[href] di document).
+  panel.addEventListener('pointerdown', e => { e.preventDefault(); });
+  panel.addEventListener('click', e => {
+    const a = e.target.closest('a[href]');
+    if (!a) return;
+    close();
+    input.blur();
+  });
+
+  document.addEventListener('pointerdown', e => {
+    if (!form.contains(e.target)) close();
+  });
+}
+$$('[data-search]').forEach(wireSuggest);
+const pickSuggest = form => (form && form._pick ? form._pick() : null);
+const closeSuggest = form => { if (form && form._close) form._close(); };
 
 $('#searchToggle').onclick = () => {
   const top = $('#top');
@@ -1781,10 +2183,37 @@ document.addEventListener('click', e => {
     return;
   }
   if (t.closest('[data-retry]')) { route(); return; }
+  const pOpen = t.closest('[data-open-pagesheet]');
+  if (pOpen) {
+    const sheet = $('#pSheet'), scrim = $('#pScrim');
+    if (sheet && scrim) {
+      sheet.dataset.open = 'true';
+      scrim.dataset.open = 'true';
+      sheet.setAttribute('aria-hidden', 'false');
+      sheet.removeAttribute('inert');
+      pOpen.setAttribute('aria-expanded', 'true');
+      const curEl = $('.pgrid a[aria-current="page"]', sheet);
+      if (curEl?.scrollIntoView) setTimeout(() => curEl.scrollIntoView({ block: 'center' }), 50);
+    }
+    return;
+  }
+  const pClose = t.closest('[data-close-pagesheet]');
+  if (pClose) {
+    const sheet = $('#pSheet'), scrim = $('#pScrim');
+    if (sheet && scrim) {
+      sheet.dataset.open = 'false';
+      scrim.dataset.open = 'false';
+      sheet.setAttribute('aria-hidden', 'true');
+      sheet.setAttribute('inert', '');
+      $('[data-open-pagesheet]')?.setAttribute('aria-expanded', 'false');
+    }
+    return;
+  }
   const back = t.closest('[data-back]');
   if (back) {
     e.preventDefault();
-    if (_navCount > 0) window.history.back(); else go('/');
+    const fallback = back.getAttribute('href') || '/';
+    if (_navCount > 0) window.history.back(); else go(fallback);
     return;
   }
   const a = t.closest('a[href]');
@@ -1809,7 +2238,18 @@ document.addEventListener('submit', e => {
 document.addEventListener('keydown', e => {
   const t = e.target;
   if (t instanceof Element && t.matches('input,select,textarea')) return;
-  if (e.key === 'Escape' && $('#sheet')?.dataset.open === 'true') { closeSheet?.(); return; }
+  if (e.key === 'Escape') {
+    const ps = $('#pSheet');
+    if (ps && ps.dataset.open === 'true') {
+      ps.dataset.open = 'false';
+      $('#pScrim')?.setAttribute('data-open', 'false');
+      ps.setAttribute('aria-hidden', 'true');
+      ps.setAttribute('inert', '');
+      $('[data-open-pagesheet]')?.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    if ($('#sheet')?.dataset.open === 'true') { closeSheet?.(); return; }
+  }
   if (!readerNav) return;
   if (e.key === 'ArrowRight' && readerNav.next) go(readerNav.next);
   if (e.key === 'ArrowLeft' && readerNav.prev) go(readerNav.prev);
@@ -1851,6 +2291,16 @@ document.addEventListener('keydown', e => {
     case 'riwayat': url = '/collection?tab=history'; break;
   }
   if (url) window.history.replaceState(null, '', url);
+})();
+
+(function initReaderHistory() {
+  const seg = location.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  if (seg[0] === 'read' && seg[1] && !window.history.state?.inReader) {
+    const detail = `/manga/${encodeURIComponent(seg[1])}`;
+    window.history.replaceState({ inReader: false }, '', detail);
+    window.history.pushState({ inReader: true }, '', location.pathname + location.search);
+    _navCount = 1;
+  }
 })();
 
 route();

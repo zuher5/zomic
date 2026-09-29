@@ -9,10 +9,11 @@ BeautifulSoup, konsisten dengan modul scraper lain di proyek ini.
 """
 
 import html
+import os
 import re
 import threading
 import time
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import requests
 
@@ -29,6 +30,27 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 # menaikkan peluang sukses per call dari ~55% (2x) ke ~70% (3x).
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.35
+
+# CATATAN: tidak ada throttle kiryuu di modul ini. Versi lama menjalankan
+# sleep di dalam lock global pada setiap retry_get, dan fungsi ini juga
+# dipakai app.py untuk download gambar /api/img — sehingga cover CDN ikut
+# di-serialize (burst 12 cover butuh >11 detik). Throttle hanya relevan
+# untuk scraper kiryuu, jadi sekarang hanya di kiryuu_web._throttle.
+
+
+def _throttle_kiryuu(url):
+    """Deprecated: no-op. Throttle kiryuu dipindah ke kiryuu_web._throttle."""
+    return
+
+
+def _kiryuu_host(url):
+    """True bila URL benar-benar milik host kiryuu (parse, bukan substring)."""
+    try:
+        host = (urlparse(url).hostname or '').lower()
+    except Exception:
+        return False
+    khost = (urlparse(KIRYUU_SITE).hostname or '').lower()
+    return bool(khost) and (host == khost or host.endswith('.' + khost))
 
 
 def _humanize_slug(s):

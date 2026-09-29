@@ -9,10 +9,11 @@ Sama seperti komiku_web.py, memakai stdlib (re + json) saja.
 
 import html
 import json
+import os
 import re
 import threading
 import time
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import requests
 
@@ -23,6 +24,41 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 # 3x attempt: lihat komentar yang sama di komiku_web.py.
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.35
+
+# Throttle per-host: kiryuu.to men-timeout request beruntun (anti-bot).
+# Jaga jeda minimum antar request ke host yang sama supaya tidak kena blokir
+# saat beberapa endpoint dipanggil bersamaan (burst). Bisa dioverride via env.
+MIN_FETCH_INTERVAL = float(os.environ.get('KIRYUU_MIN_INTERVAL', '1.0'))
+_FETCH_NEXT_FREE = {}          # host -> waktu paling awal request berikutnya
+_FETCH_LOCK = threading.Lock()
+
+
+def _throttle(url):
+    """Jeda sesuai jadwal per-host TANPA menahan lock saat tidur.
+
+    Versi lama melakukan sleep di dalam lock global: semua request (cross-host)
+    ikut antre dan satu lock memblokir seluruh worker. Sekarang lock hanya
+    dipakai sebentar untuk menjadwalkan, lalu sleep di luar lock sehingga
+    request ke host lain tetap bisa jalan. Slot berikutnya di-reserve di dalam
+    lock supaya burst tetap berurutan per host (tidak saling menabrak).
+    """
+    try:
+        host = urlparse(url).netloc.lower()
+    except Exception:
+        return
+    if not host:
+        return
+    now = time.monotonic()
+    with _FETCH_LOCK:
+        # Slot berikutnya = slot yang sudah direserve, atau "sekarang" kalau
+        # host belum pernah dipakai. M.reserve = max(M.kosong, M.slot + interval)
+        # → thread yang datang bersamaan mendapat giliran, bukan jadwal sama.
+        slot = _FETCH_NEXT_FREE.get(host, now)
+        wait = slot - now
+        _FETCH_NEXT_FREE[host] = max(now, slot) + MIN_FETCH_INTERVAL
+    # Tidur DI LUAR lock supaya request ke host lain tidak terpengaruh.
+    if wait > 0:
+        time.sleep(wait)
 
 HEADERS = {
     'User-Agent': (
@@ -48,6 +84,7 @@ def _retry_delay(resp, i, base_delay):
 
 def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY, **kwargs):
     for i in range(attempts):
+        _throttle(url)
         try:
             resp = session.get(url, **kwargs)
         except (requests.exceptions.ConnectionError,
@@ -213,12 +250,30 @@ _GENRE_FROM_PAGE = re.compile(
 )
 
 
+# AJAX search (htmx): POST admin-ajax.php?nonce=..&action=search dengan
+# field 'query'. URL /?s=... tidak lagi mengembalikan hasil (title
+# 'Advanced Search', 0 link manga) — search wajib lewat AJAX ini.
+# Link manga diparse langsung dari blok (lihat _parse_ajax_results) supaya
+# blok htmx yang tidak punya <h3> tetap tertangkap.
+_AJAX_RESULT_TITLE = re.compile(r'<h3[^>]*>(.*?)</h3>', re.S | re.I)
+_AJAX_RESULT_IMG = re.compile(r'<img[^>]*src="(https?://[^"]+)"', re.I)
+_AJAX_SHOW_MORE = re.compile(r'advanced-search|show more', re.I)
+# Nonce berubah-ubah tapi jarang; cache 10 menit agar tiap search tidak
+# membayar satu request homepage tambahan.
+NONCE_TTL = 600
+
+
 class KiryuuWeb:
     """Scraper kiryuu.to. Semua method mengembalikan struktur JSON-ready."""
 
     def __init__(self, timeout=15):
         self.timeout = timeout
         self._local = threading.local()
+        # Cache nonce bersama antar thread: satu request homepage cukup untuk
+        # semua search yang arrive dalam window NONCE_TTL.
+        self._nonce_lock = threading.Lock()
+        self._nonce = ''
+        self._nonce_exp = 0.0
 
     def _session(self):
         try:
@@ -237,6 +292,53 @@ class KiryuuWeb:
         )
         resp.raise_for_status()
         return resp.text
+
+    def _ajax_nonce(self):
+        """Ambil nonce admin-ajax dari homepage (di-cache NONCE_TTL detik)."""
+        now = time.monotonic()
+        with self._nonce_lock:
+            if self._nonce and now < self._nonce_exp:
+                return self._nonce
+        try:
+            raw = self._fetch(SITE + '/', timeout=10, attempts=1)
+        except requests.RequestException:
+            return ''
+        m = re.search(r'admin-ajax\.php\?nonce=([a-z0-9]+).*?action=search', raw)
+        if not m:
+            return ''
+        nonce = m.group(1)
+        with self._nonce_lock:
+            self._nonce = nonce
+            self._nonce_exp = time.monotonic() + NONCE_TTL
+        return nonce
+
+    @staticmethod
+    def _parse_ajax_results(raw):
+        """Parse hasil AJAX search (anchor /manga/{slug}/ + h3 + img).
+
+        Skip anchor non-manja mis. 'Show more' -> /advanced-search/.
+        Judul dari h3; bila kosong fallback humanize(slug).
+        """
+        items, seen = [], set()
+        blocks = re.split(r'<a\s+href="', raw)
+        for b in blocks[1:]:
+            m = re.match(r'(?:https?://[^"/]+)?/manga/([a-z0-9\-]+)/"', b)
+            if not m or m.group(1) in seen:
+                continue
+            slug = m.group(1)
+            if _AJAX_SHOW_MORE.search(b[:400]):
+                continue
+            seen.add(slug)
+            t = _AJAX_RESULT_TITLE.search(b)
+            img = _AJAX_RESULT_IMG.search(b)
+            items.append({
+                'slug': slug,
+                'title': html.unescape(_text(t.group(1))) if t else _humanize_slug(slug),
+                'cover': html.unescape(img.group(1)) if img else '',
+                'type': '', 'genre': '', 'status': '',
+                'chapter': '', 'rating': '',
+            })
+        return items
 
     # ---------- parsing ----------
 
@@ -381,26 +483,51 @@ class KiryuuWeb:
         }
 
     def search(self, query, page=1):
-        """Pencarian manga. Kiryuu mendukung ?s={query}."""
+        """Pencarian manga via AJAX admin-ajax (htmx): POST field 'query'.
+
+        URL /?s={query} tidak lagi mengembalikan hasil (halaman 'Advanced
+        Search' kosong) sehingga search wajib lewat endpoint AJAX ini.
+        Endpoint upstream tidak punya pagination, tapi balutannya berisi
+        daftar hasil lengkap (dibatasi max-h-96 di sisi htmx) — jadi
+        pagination dilakukan di sini terhadap hasil yang sudah diterima,
+        supaya page>1 tidak mengulang isi page 1.
+        """
         query = (query or '').strip()
         if not query:
             return {'items': [], 'page': 1, 'per_page': PER_PAGE, 'query': '', 'has_next': False}
         page = max(1, int(page))
-        url = f"{SITE}/page/{page}/?s={quote_plus(query)}" if page > 1 else f"{SITE}/?s={quote_plus(query)}"
-        raw = self._fetch(url)
-        items = self._parse_listing(raw)
-        items = self._dedupe(items)
-
-        # Cek pagination untuk search
-        pages_found = _PAGINATION.findall(raw)
-        max_page = max([int(p) for p, _ in pages_found] + [page])
-
+        nonce = self._ajax_nonce()
+        if not nonce:
+            return {'items': [], 'page': page, 'per_page': PER_PAGE,
+                    'query': query, 'has_next': False}
+        all_items = []
+        url = f"{SITE}/wp-admin/admin-ajax.php?nonce={nonce}&action=search"
+        for i in range(RETRY_ATTEMPTS):
+            _throttle(url)
+            try:
+                resp = self._session().post(
+                    url, data={'query': query}, timeout=self.timeout,
+                    headers={'X-Requested-With': 'XMLHttpRequest'},
+                )
+                resp.raise_for_status()
+                all_items = self._parse_ajax_results(resp.text)
+                break
+            except requests.RequestException:
+                if i == RETRY_ATTEMPTS - 1:
+                    all_items = []
+                else:
+                    time.sleep(RETRY_BASE_DELAY * (2 ** i))
+        # Potong menjadi halaman PER_PAGE; total_pages dari jumlah hasil nyata.
+        start = (page - 1) * PER_PAGE
+        items = all_items[start:start + PER_PAGE]
         return {
             'items': items,
             'page': page,
             'per_page': PER_PAGE,
             'query': query,
-            'has_next': page < max_page,
+            'total': len(all_items),
+            'total_pages': max(1, -(-len(all_items) // PER_PAGE)),
+            'has_next': start + PER_PAGE < len(all_items),
         }
 
     def by_genre(self, genre, page=1):
