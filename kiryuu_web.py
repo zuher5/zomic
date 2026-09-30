@@ -182,7 +182,7 @@ _CARD_RATING = re.compile(
     r'<div class="numscore">\s*([\d.]+)\s*</div>'
 )
 _CARD_TYPE = re.compile(
-    r'static/svg/(manga|manhwa|manhua)\.svg', re.I
+    r'(?:static/svg/|text-\[10px\][^>]*>\s*)(manga|manhwa|manhua)\b', re.I
 )
 _CHAPTER_URL = re.compile(
     r'href="((?:https?://[^"/]+)?/manga/[^/]+/chapter-([a-z0-9.\-]+)/)"', re.I
@@ -760,15 +760,9 @@ class KiryuuWeb:
         return images
 
     def popular(self):
-        """Manga populer per tipe.
-
-        Endpoint /manga/list-mode/?order=popular kini 404 di v7.kiryuu.to.
-        Fallback: listing homepage kiryuu (terurut praktis by views — judul
-        populer tampil di atas), di-sort ulang rating desc supaya urutannya
-        konsisten antar tipe.
-        """
+        """Manga populer per tipe."""
         try:
-            raw = self._fetch(f"{SITE}/manga/list-mode/?order=popular", timeout=15)
+            raw = self._fetch(f"{SITE}/manga/?order=popular", timeout=15)
         except requests.RequestException:
             raw = ''
         items = self._parse_listing(raw) if raw else []

@@ -1115,7 +1115,15 @@ def popular(response: Response = None):
 
         def _kiryuu():
             try:
-                return kiryuu.popular()
+                pop = kiryuu.popular()
+                manhua_cnt = sum(1 for c in pop if str(c.get('type') or '').lower() == 'manhua')
+                if 0 < manhua_cnt < 4 and len(pop) > 5:
+                    try:
+                        home_items = kiryuu.home(1).get('items', [])
+                        pop = _merge_items(pop, [c for c in home_items if str(c.get('type') or '').lower() == 'manhua'])
+                    except Exception:
+                        pass
+                return pop
             except Exception as e:
                 log.warning("kiryuu.popular() gagal: %s", e)
                 return []
@@ -1123,29 +1131,21 @@ def popular(response: Response = None):
         komiku_groups, kiryuu_pop = _parallel(_komiku, _kiryuu)
         if komiku_groups is None and not kiryuu_pop:
             raise requests.RequestException("popular: kedua upstream gagal")
-        if komiku_groups:
-            # Merge kiryuu popular ke setiap grup komiku berdasarkan type
-            for group in komiku_groups:
-                k_type = group['key']
-                matching = [c for c in kiryuu_pop if c.get('type', '').lower() == k_type]
-                if matching:
-                    group['items'] = _merge_items(group['items'], matching)
-            return komiku_groups
-        # Komiku gagal/kosong (umum: DDoS-Guard) tapi kiryuu sehat → jangan
-        # buang data kiryuu. Kelompokkan per tipe dengan shape yang sama
-        # seperti grup komiku agar frontend (tabs Popular) tetap jalan.
         out = []
-        seen = set()
-        for card in kiryuu_pop:
-            t = str(card.get('type') or '').lower()
-            if t not in ('manga', 'manhwa', 'manhua') or t in seen:
-                continue
-            seen.add(t)
+        komiku_map = {g['key']: g for g in (komiku_groups or [])}
+        for t in ('manga', 'manhwa', 'manhua'):
+            k_group = komiku_map.get(t)
             matching = [c for c in kiryuu_pop if str(c.get('type') or '').lower() == t]
             for c in matching:
                 c['source'] = 'kiryuu'
                 _en_item_genre(c)
-            out.append({'key': t, 'title': f"{t.title()} Populer", 'items': matching})
+            items = []
+            if k_group and k_group.get('items'):
+                items = _merge_items(k_group['items'], matching) if matching else k_group['items']
+            elif matching:
+                items = matching
+            if items:
+                out.append({'key': t, 'title': f"{t.title()} Populer", 'items': items})
         return out
 
     data = cached("popular", _popular, ttl=3600)

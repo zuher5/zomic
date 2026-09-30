@@ -523,6 +523,9 @@ a.rrow2 .r2go:hover{color:var(--text);transform:translateX(2px)}
 }
 .back svg{width:15px;height:15px}
 .back:hover{color:var(--text)}
+.detail-bar{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);margin-bottom:var(--sp-2);flex-wrap:wrap}
+.detail-bar .crumb{margin-bottom:0}
+.detail-bar .back{margin-bottom:0;min-height:36px}
 .detail-page{max-width:1056px;margin-inline:auto}
 .detail-page .back{min-height:44px}
 .dwrap{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-4)}
@@ -569,6 +572,7 @@ a.rrow2 .r2go:hover{color:var(--text);transform:translateX(2px)}
 .actions button[data-fav]:hover{border-color:var(--danger);color:#ffd7dd}
 
 .dhead.hero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-md);padding:clamp(20px,4vw,32px);min-height:auto;align-content:center;isolation:isolate}
+.syn-box{margin-top:var(--sp-3)}
 .hero-bg{position:absolute;inset:-40px;background-size:cover;background-position:center 20%;filter:blur(34px) saturate(1.6) brightness(1.1);transform:scale(1.15);opacity:.62;z-index:0}
 .hero-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(9,9,11,.45) 0%,rgba(9,9,11,.72) 55%,var(--bg) 100%);z-index:0}
 .dhead.hero .cover{border:1px solid rgba(255,255,255,.14);box-shadow:0 16px 48px rgba(0,0,0,.65)}
@@ -604,25 +608,26 @@ a.rrow2 .r2go:hover{color:var(--text);transform:translateX(2px)}
 .syn-toggle.open svg{transform:rotate(180deg)}
 
 
-.chapters{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.chapters{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;border:0;border-radius:0}
+@media (min-width:600px){.chapters{grid-template-columns:repeat(3,1fr)}}
 .chapters a{
-  display:flex;align-items:center;gap:var(--sp-3);
-  padding:12px var(--sp-3);border-top:1px solid var(--line);min-height:48px;
-  transition:background .12s var(--ease);
+  display:flex;align-items:center;justify-content:center;gap:var(--sp-2);
+  padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--surface);min-height:44px;text-align:center;
+  transition:background .12s var(--ease),border-color .12s var(--ease),transform .12s var(--ease);
 }
-.chapters a:first-child{border-top:0}
-.chapters a:hover{background:var(--surface-hover)}
-.chapters a:focus-visible{outline-offset:-2px;background:var(--surface-hover)}
+.chapters a:first-child{border-top:1px solid var(--line)}
+.chapters a:hover{background:var(--surface-hover);border-color:var(--accent);transform:translateY(-1px)}
+.chapters a:focus-visible{outline-offset:-2px;background:var(--surface-hover);border-color:var(--ring)}
 .chapters .ch{font-size:var(--t-sm);font-weight:600;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chapters .when{font-size:var(--t-meta);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-.chapters .badge-new{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--on-accent);background:var(--accent);padding:2px 7px;border-radius:999px}
+.chapters .when{font-size:var(--t-meta);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;flex-shrink:0}
+.chapters .badge-new{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--on-accent);background:var(--accent);padding:2px 7px;border-radius:999px;margin-left:4px}
+.chapters .rd{font-size:.68rem;color:var(--accent);font-weight:700;margin-left:4px}
 .chapters a.read{background:rgba(127,127,127,.07);opacity:.62}
 .chapters a.read:hover{opacity:.85}
 .chapters a.read .ch{color:var(--muted);font-weight:400}
 .chapters a.read .label{font-size:.6rem;letter-spacing:.1em;color:var(--accent);opacity:.8}
-.chapters a::before{content:"";width:5px;height:5px;border-radius:50%;flex:0 0 auto}
-.chapters a.read::before{background:var(--accent);opacity:.45}
 .list-tools{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);margin-bottom:var(--sp-2);flex-wrap:wrap}
 
 
@@ -787,9 +792,88 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
   .top .bar .search-inline{display:flex}
   .top #searchToggle{display:none}
   .top.open .search-row{display:none}
+
+  /* Desktop Detail Refinements */
+  .dhead.hero .hero-meta{display:none}
+  .dhead.hero .facts.detail-facts{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:var(--sp-3);
+    margin-top:var(--sp-4);
+    border-top:1px solid var(--line);
+    padding-top:var(--sp-3);
+  }
+  .dhead.hero .facts.detail-facts > div{
+    border-top:0;
+    padding-top:0;
+  }
+  .cover-pane{
+    width:100%;
+    max-width:220px;
+  }
+  .cover-pane .cover{
+    width:100%;
+    max-width:220px;
+    margin:0;
+  }
+  .cover-pane .actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    width:100%;
+    max-width:220px;
+    margin:var(--sp-3) 0 0;
+  }
+  .cover-pane .actions .btn,
+  .cover-pane .actions .btn.primary,
+  .cover-pane .actions button[data-fav]{
+    flex:1 1 0 !important;
+    width:100% !important;
+    min-width:0 !important;
+    max-width:none !important;
+    height:38px !important;
+    min-height:38px !important;
+    padding:0 6px !important;
+    font-size:12px !important;
+    font-weight:600 !important;
+    line-height:1 !important;
+    white-space:nowrap !important;
+    box-sizing:border-box !important;
+    border-radius:var(--r-sm) !important;
+    justify-content:center;
+  }
+
+  /* WestManga style chapter tile grid: 4 columns, max-height 480px */
+  .chapters{
+    grid-template-columns:repeat(4,1fr);
+    gap:8px;
+    max-height:480px;
+    overflow-y:auto;
+    padding-right:2px;
+  }
 }
 @media (max-width:899px){
   .top .bar .search-inline{display:none}
+  .dhead.hero{display:flex;flex-direction:column;align-items:center;padding:16px 14px;gap:6px}
+  .cover-pane,.dhead.hero .txt{display:contents}
+  .dhead.hero .cover{order:1;margin:0 auto;max-width:180px}
+  .dhead.hero h1{order:2;text-align:center;width:100%;font-size:1.35rem;margin-top:2px}
+  .dhead.hero .hero-meta{order:3;display:flex;justify-content:center;width:100%;margin-top:2px}
+  .dhead.hero .genres{order:4;display:flex;flex-wrap:nowrap;overflow:hidden;justify-content:center;width:100%;max-width:380px;margin-top:4px}
+  .dhead.hero .genres a{white-space:nowrap}
+  .dhead.hero .genres a:nth-child(n+4){display:none}
+  .dhead.hero .actions{order:5;display:flex;justify-content:center;gap:var(--sp-2);margin:8px auto 0;width:100%;max-width:380px}
+  .dhead.hero .actions .btn,.dhead.hero .actions button[data-fav]{flex:1 1 0;min-width:0;min-height:40px;font-size:var(--t-meta)}
+  .dhead.hero .syn-box{order:6;width:100%;margin-top:8px}
+  .dhead.hero .syn.clamped{-webkit-line-clamp:unset !important;display:block !important}
+  .dhead.hero .syn-toggle{display:none !important}
+  .dhead.hero .facts.detail-facts{display:none}
+  .dwrap{gap:var(--sp-3)}
+  .dwrap > :last-child section.block{margin-top:var(--sp-3)}
+  .dwrap > :last-child .block-head{display:none}
+  .dwrap .list-tools{width:100%;max-width:380px;margin:0 auto 6px}
+  .chapters{grid-template-columns:repeat(2,minmax(0,175px));justify-content:center;gap:8px;width:100%;max-width:380px;margin-inline:auto}
+  .chapters a{padding:8px 10px;min-height:40px}
 }
 @media (max-width:479px){
   .resume{grid-template-columns:64px 1fr;gap:var(--sp-3);padding:var(--sp-3)}
@@ -1426,39 +1510,52 @@ async function pageDetail(slug) {
     ].filter(Boolean);
     const heroMetaHtml = heroMeta.map(t => `<span class="hm">${t}</span>`)
       .join('<span class="hm-sep" aria-hidden="true">•</span>');
+    const factsItems = [
+      ['Status', statusVal || '-'],
+      ['Chapters', chapters.length ? `${chapters.length} Chapters` : '-'],
+      ['Rating', ratingVal ? `★ ${ratingVal}` : '-'],
+      ['Type', typeVal || '-'],
+    ];
+    const factsHtml = factsItems.map(([label, val]) =>
+      `<div><dt>${label}</dt><dd>${esc(val)}</dd></div>`
+    ).join('');
+
     view.innerHTML = `
-      ${breadcrumb}
-      <button class="back" data-back>${svg('arrowL')} Back</button>
+      <div class="detail-bar">
+        ${breadcrumb}
+        <button class="back" data-back>${svg('arrowL')} Back</button>
+      </div>
       <div class="dwrap">
         <div>
           <div class="dhead hero">
             ${d.cover ? `<div class="hero-bg" aria-hidden="true" style="background-image:url('${opt(d.cover, 400).replace(/'/g, '')}')"></div><div class="hero-shade" aria-hidden="true"></div>` : ''}
-            <div class="cover"><span class="ph">${initials(d.title)}</span>${d.cover ? coverImg(d.cover, 480, S_DETAIL, true) : ''}</div>
+            <div class="cover-pane">
+              <div class="cover"><span class="ph">${initials(d.title)}</span>${d.cover ? coverImg(d.cover, 480, S_DETAIL, true) : ''}</div>
+              <div class="actions">
+                ${resume ? `<a class="btn primary" href="${readHref(slug, resume.ch)}">
+                  ${resumedLabel}</a>` : ''}
+                <button class="btn" data-fav="${esc(slug)}" data-title="${esc(d.title)}" data-cover="${esc(d.cover || '')}"
+aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favorites'}">${favBtnContent(fav)}</button>
+              </div>
+            </div>
             <div class="txt">
               <h1>${esc(d.title)}</h1>
               ${heroMetaHtml ? `<p class="hero-meta">${heroMetaHtml}</p>` : ''}
-              ${genres.length ? `<p class="genres">${genres.slice(0, 4).map(g =>
+              ${genres.length ? `<p class="genres">${genres.slice(0, 5).map(g =>
                 `<a href="/genre/${encodeURIComponent(g.toLowerCase().replace(/\s+/g, '-'))}">${esc(g)}</a>`).join('')}</p>` : ''}
+              ${d.sinopsis && d.sinopsis !== '-' ? `<div class="syn-box">
+                <p class="syn clamped" id="syn">${esc(d.sinopsis)}</p>
+                <button class="syn-toggle" id="synBtn" aria-controls="syn" aria-expanded="false" hidden>Read more ${icon('chevD')}</button>
+              </div>` : ''}
+              <dl class="facts detail-facts">${factsHtml}</dl>
             </div>
           </div>
-
-          <div class="actions">
-            ${resume ? `<a class="btn primary" href="${readHref(slug, resume.ch)}">
-              ${resumedLabel}</a>` : ''}
-            <button class="btn" data-fav="${esc(slug)}" data-title="${esc(d.title)}" data-cover="${esc(d.cover || '')}"
-aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favorites'}">${favBtnContent(fav)}</button>
-          </div>
-
-          ${d.sinopsis && d.sinopsis !== '-' ? block('Synopsis',
-            `<p class="syn clamped" id="syn">${esc(d.sinopsis)}</p>
-             <button class="syn-toggle" id="synBtn" aria-controls="syn" aria-expanded="false" hidden>Read more ${icon('chevD')}</button>`) : ''}
         </div>
 
         <div>
           ${chapters.length ? block('Chapter', `<div class="list-tools">
+              <button class="btn sm" id="sortCh">Oldest first ${icon('chevR')}</button>
               <span class="label">${chapters.length} chapter${read.size ? ` · ${read.size} read` : ''}</span>
-              <input class="input chap-search" id="chapSearch" type="search" placeholder="Search chapters…" aria-label="Search chapters" autocomplete="off">
-              <button class="btn sm" id="sortCh">Latest first ${icon('chevR')}</button>
             </div><div class="chapters" id="chList"></div>`) : empty('No chapters yet')}
         </div>
       </div>
@@ -1466,20 +1563,15 @@ aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favo
       ${d.similar?.length ? block('You may also like', railOf(d.similar)) : ''}
     `;
 
-    let desc = true, chapQuery = ''; // newest first
+    let desc = false; // Chapter 1 first
     const chEl = $('#chList');
     const render = () => {
       const ordered = desc ? [...chapters].reverse() : chapters;
-      // Query only filters; never injected into HTML.
-      const list = chapQuery ? ordered.filter(c => `${c.title || ''} ${c.ch}`.toLowerCase().includes(chapQuery)) : ordered;
-      chEl.innerHTML = list.map((c, idx) => {
+      chEl.innerHTML = ordered.map((c, idx) => {
         const done = read.has(String(c.ch));
-        const isNew = idx === 0 && desc;
+        const isNew = (!desc ? idx === chapters.length - 1 : idx === 0);
         return `<a class="${done ? 'read' : ''}" href="${readHref(slug, c.ch)}">
-        <span class="ch">${esc(c.title || 'Chapter ' + c.ch)}</span>
-        ${isNew ? '<span class="badge-new">NEW</span>' : ''}
-        ${done ? '<span class="label">Read</span>' : ''}
-        <span class="when mono">${esc(c.date || '')}</span><span aria-hidden="true" style="color:var(--muted)">→</span></a>`;
+        <span class="ch">${esc(c.title || 'Chapter ' + c.ch)}${isNew ? '<span class="badge-new">NEW</span>' : ''}${done ? '<span class="rd">✓</span>' : ''}</span></a>`;
       }).join('');
     };
     if (chEl) {
@@ -1489,8 +1581,6 @@ aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favo
         e.currentTarget.innerHTML = (desc ? 'Latest first ' : 'Oldest first ') + icon('chevR');
         render();
       };
-      const chapSearch = $('#chapSearch');
-      if (chapSearch) chapSearch.oninput = e => { chapQuery = e.target.value.trim().toLowerCase(); render(); };
     }
     const syn = $('#syn'), synBtn = $('#synBtn');
     if (syn && synBtn) {
