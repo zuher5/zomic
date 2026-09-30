@@ -1,0 +1,84 @@
+name: CI
+
+# 125 test suite ini sebelumnya hanya bisa dijalankan manual. Setiap push ke
+# main sekarang diverifikasi otomatis sebelum dianggap deployable.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Batalkan run lamawhen commit baru menyusul — hemat kuota runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Proyek butuh >=3.10 (httpx2 2.1+ sudah drop 3.9).
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # perlu history penuh untuk scan secret
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run test suite
+        # Test fully mocked — tidak menyentuh network, jadi stabil & cepat.
+        run: python -m unittest discover -s tests -q
+
+      - name: Scan for committed secrets
+        run: |
+          fail=0
+          # Pola yang relevan untuk repo ini: token GitHub, private key, .env.
+          if git grep -nIE '(gh[pousr]_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' \
+               -- . ':!*.md' ':!*.lock'; then
+            echo "::error::Kemungkinan rahasia ter-commit. Tinjau di atas."
+            fail=1
+          fi
+          # Berkas yang tidak boleh pernah ter-track.
+          if git ls-files | grep -nE '(^|/)(\.env($|\.)|data/|[^/]*\.(db|sqlite3?)$|id_rsa|[^/]*\.pem$|[^/]*\.key$)'; then
+            echo "::error::Berkas sensitif ter-track. Lihat daftar di atas."
+            fail=1
+          fi
+          exit $fail
+
+  build-check:
+    name: build metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validasi pyproject + entrypoint FastAPI Cloud
+        run: |
+          pip install build
+          python -m build --wheel --outdir /tmp/dist
+      - name: Pastikan entrypoint ter-deklarasi
+        run: |
+          # `fastapi deploy` mencari [tool.fastapi] entrypoint; kalau hilang,
+          # deploy relying on auto-detect dan bisa gagal.
+          grep -q '^\[tool\.fastapi\]' pyproject.toml \
+            || { echo "::error::[tool.fastapi] hilang dari pyproject.toml"; exit 1; }
+          grep -q 'entrypoint' pyproject.toml \
+            || { echo "::error::entrypoint tidak dideklarasi"; exit 1; }
+          echo "OK"

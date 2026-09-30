@@ -175,6 +175,26 @@ Di FastAPI Cloud service tidur setelah idle — cache yang hilang itu normal;
 .venv/bin/python -m unittest discover -s tests -q
 ```
 
+Test tidak menyentuh jaringan (seluruh panggilan HTTP di-mock), jadi suite
+lengkap selesai dalam ~10 detik dan stabil di runner CI.
+
+### CI otomatis
+
+`.github/workflows/ci.yml` menjalankan suite di setiap push/PR ke `main` pada
+Python 3.11, 3.12, dan 3.13. Dua job:
+
+- **test** — jalankan 125 test, lalu scan bertahap.token GitHub / private key
+  dan berkas sensitif (`.env`, `data/`, `*.db`, `*.pem`, `*.key`) yang tak
+  boleh masuk git.
+- **build-check** — bangun wheel dan pastikan `[tool.fastapi] entrypoint`
+  masih ada (ini yang dicari `fastapi deploy`).
+
+Badge status:
+
+```markdown
+[![CI](https://github.com/zuher5/zomic/actions/workflows/ci.yml/badge.svg)](https://github.com/zuher5/zomic/actions/workflows/ci.yml)
+```
+
 ## Deploy ke FastAPI Cloud (server persisten)
 
 FastAPI Cloud menjalankan app sebagai **server persisten** (bukan function
