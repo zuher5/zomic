@@ -26,3 +26,8 @@ zomic-imgcache/
 
 # FastAPI Cloud local config (link project ke cloud app)
 .fastapicloud/
+# Runtime DB — jangan commit/upload (token sesi & akun pengguna)
+data/
+*.db
+*.db-wal
+*.db-shm
