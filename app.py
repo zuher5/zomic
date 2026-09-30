@@ -10,7 +10,7 @@ from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from fastapi import FastAPI, HTTPException, Path, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from datetime import datetime, timedelta
@@ -738,6 +738,23 @@ app.add_middleware(
     allow_methods=["GET", "HEAD", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# --- GLOBAL EXCEPTION HANDLER ---
+# Tanpa ini, exception yang tak tertangkap — misalnya requests.exceptions.
+# SSLError / TooManyRedirects yang tidak ditangkap retry_get, atau bug logika
+# di endpoint katalog — menjadi 500 dengan traceback penuh di respons. Itu
+# membocorkan struktur internal (path server, nama modul, baris) ke publik dan
+# menyulitkan diagnosis karena yang tampil ke user, bukan yang tersimpan di log.
+#
+# Di sini traceback lengkap tetap ditulis ke log server; yang kembali ke klien
+# hanya pesan generik. Endpoint yang memang gagal dengan sengaja tetap memakai
+# HTTPException dan tidak terpengaruh — handler ini hanya untuk hal tak terduga.
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    log.exception(
+        "Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path
+    )
+    return JSONResponse(status_code=500, content={'detail': 'internal server error'})
 
 # --- SECURITY HEADERS ---
 # Header hardening untuk semua respons. CSP memakai 'unsafe-inline' untuk

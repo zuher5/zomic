@@ -253,6 +253,20 @@ ke FastAPI Cloud (`.fastapicloudignore`).
 Untuk mengaktifkan kembali: buka dashboard Vercel → project `zomic` →
 **Unpause** → push ulang ke `main` (auto-deploy via integrasi GitHub).
 
+### Cara membaca status deploy di GitHub
+
+Setiap push ke `main` memicu **dua** integrasi, dan keduanya normal:
+
+| Environment di tab Deployments | Diblokir deploy oleh | Status yang diharapkan |
+| --- | --- | --- |
+| `Production – zomic` | `fastapi-cloud[bot]` | ✅ `success` — inilah yang melayani `zomic.my.id` |
+| `Production` | `vercel[bot]` | `failure` + "Deployment was blocked" — **diharapkan**, konsekuensi project di-pause |
+
+`Deployment was blocked` dari Vercel **bukan** tanda kode rusak; itu Vercel
+menolak deploy ke project yang di-pause (limit/billing di dashboard). Selama
+`Production – zomic` menunjukkan `success`, produksi sehat. Jangan mengejar
+status Vercel sebagai bug sebelum mengecek baris FastAPI Cloud lebih dulu.
+
 Render.com tidak dipakai dan konfigurasinya (`render.yaml`) telah dihapus.
 
 ## Keterbatasan (upstream komiku.org)

@@ -214,5 +214,55 @@ class ApiRoutesTest(unittest.TestCase):
             self.assertEqual(self.client.get('/api/popular').status_code, 502)
 
 
+class UnhandledExceptionTest(unittest.TestCase):
+    """Exception tak terduga harus jadi 500 generik, bukan bocor traceback.
+
+    Handler global di app.py menutup semua exception yang tidakanticipated
+    (mis. requests.exceptions.SSLError dari scraper, yang tidak ditangkap
+    retry_get). Tanpa itu, traceback penuh — termasuk path server dan nomor
+    baris — terkirim ke klien publik.
+    """
+
+    def setUp(self):
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def _route_that_raises(self):
+        from fastapi.routing import APIRoute
+
+        def boom():
+            raise RuntimeError('rahasia: /srv/zomic/app.py baris 4242')
+
+        # Sisip di depan catch-all SPA, kalau tidak route ini tak akan pernah kena.
+        return APIRoute(path='/__uji_boom', endpoint=boom, methods=['GET'])
+
+    def test_unexpected_exception_returns_generic_500(self):
+        app.router.routes.insert(0, self._route_that_raises())
+        try:
+            r = self.client.get('/__uji_boom')
+        finally:
+            app.router.routes.pop(0)
+        self.assertEqual(r.status_code, 500)
+        self.assertEqual(r.json(), {'detail': 'internal server error'})
+
+    def test_unexpected_exception_does_not_leak_internals(self):
+        app.router.routes.insert(0, self._route_that_raises())
+        try:
+            body = self.client.get('/__uji_boom').text
+        finally:
+            app.router.routes.pop(0)
+        for leak in ('Traceback', 'RuntimeError', '/srv/zomic', 'app.py', '4242', 'line'):
+            self.assertNotIn(leak, body, f'respons membocorkan internal: {leak!r}')
+
+    def test_handler_does_not_mask_intentional_http_exceptions(self):
+        # HTTPException yang disengaja (404 dari SPA fallback) harus tetap 404
+        # dengan detail aslinya — handler global tidak boleh menutupinya jadi 500.
+        r = self.client.get('/api/tidak-ada-xyz')
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json(), {'detail': 'not found'})
+
+    def test_healthy_routes_unaffected(self):
+        self.assertEqual(self.client.get('/health').status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()
