@@ -258,10 +258,10 @@ main > section.block:first-child{margin-top:var(--sp-2)}
 section.block{margin-top:var(--sp-6)}
 .block-head{
   display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);
-  padding-bottom:12px;margin-bottom:20px;border-bottom:1px solid var(--line);
+  margin-bottom:var(--sp-4);
 }
 
-.block.tabs > .block-head{border-bottom:0;padding-bottom:0;margin-bottom:14px}
+.block.tabs > .block-head{margin-bottom:14px}
 .block.tabs + section.block{margin-top:44px}
 .block-head h2{font-size:var(--t-h2);font-weight:700;letter-spacing:-.02em;line-height:1.25}
 .more{font-size:var(--t-label);letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--muted);white-space:nowrap;transition:color .15s var(--ease)}
@@ -800,7 +800,6 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
     grid-template-columns:repeat(4,1fr);
     gap:var(--sp-3);
     margin-top:var(--sp-4);
-    border-top:1px solid var(--line);
     padding-top:var(--sp-3);
   }
   .dhead.hero .facts.detail-facts > div{
