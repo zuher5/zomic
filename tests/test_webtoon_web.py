@@ -72,7 +72,7 @@ def _web(mapping):
     web.timeout = 5
 
     def mock_fetch(url, **kwargs):
-        for frag, payload in mapping.items():
+        for frag, payload in sorted(mapping.items(), key=lambda x: len(x[0]), reverse=True):
             if frag in url:
                 if isinstance(payload, dict):
                     return SimpleNamespace(text='', url=url, json=lambda p=payload: p)
@@ -187,6 +187,12 @@ class TestDetail(unittest.TestCase):
         # canonical menunjuk 5001; argumen genre/slug menghasilkan URL yg cocok
         self.assertEqual(web.detail(5001, 'romantic-fantasy', 'serena')['title_no'], 5001)
 
+    def test_detail_returns_none_on_error_or_missing(self):
+        web = _web({'list?title_no=9999': '<html><head><title>Connect Error :: WEBTOON</title></head><body>Error</body></html>'})
+        self.assertIsNone(web.detail(9999))
+        web2 = _web({'list?title_no=9999': '<html><body><div>No content</div></body></html>'})
+        self.assertIsNone(web2.detail(9999))
+
 
 class TestEpisodes(unittest.TestCase):
     def test_episodes_parses_and_sorts(self):
@@ -236,6 +242,15 @@ class TestChapterImages(unittest.TestCase):
     def test_no_url_returns_empty(self):
         web = _web({})
         self.assertEqual(web.chapter_images(None), [])
+
+    def test_chapter_images_canvas_fallback(self):
+        web = _web({
+            'webtoon/777/episodes': {'result': {'episodeList': []}},
+            'canvas/777/episodes': EPISODES_JSON,
+            'viewer': VIEWER_HTML,
+        })
+        imgs = web.chapter_images(777, '1')
+        self.assertEqual(len(imgs), 3)
 
 
 if __name__ == '__main__':

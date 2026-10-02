@@ -318,6 +318,8 @@ class WebtoonWeb:
 
     @classmethod
     def _parse_detail(cls, raw, title_no):
+        if not raw or '<title>Connect Error' in raw or '<title>404' in raw:
+            return None
         tno = cls._extract_title_no(f"{SITE}/{LANG}/x/list?title_no={title_no}", raw) or title_no
         m = re.search(r'<h1[^>]*class="[^"]*subj[^"]*"[^>]*>(.*?)</h1>', raw, re.S)
         title = _text(m.group(1)) if m else ''
@@ -325,6 +327,8 @@ class WebtoonWeb:
         m = re.search(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"', raw, re.I)
         if m:
             cover = _fix_cdn(m.group(1))
+        if not title and not cover:
+            return None
         author = None
         m = re.search(r'<meta[^>]+property="com-linewebtoon:webtoon:author"'
                       r'[^>]+content="([^"]+)"', raw, re.I)
@@ -422,6 +426,8 @@ class WebtoonWeb:
         url = url_or_title_no
         if chapter is not None or (isinstance(url_or_title_no, int) or str(url_or_title_no).isdigit()):
             eps = self.episodes(url_or_title_no)
+            if not eps:
+                eps = self.episodes(url_or_title_no, kind='canvas')
             ep = next((e for e in eps if str(e.get('ch', e.get('chapter', ''))) == str(chapter)), None)
             if not ep:
                 return []

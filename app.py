@@ -1272,6 +1272,8 @@ def detail(slug: str, response: Response = None):
                 raise HTTPException(status_code=404, detail="komik tidak ditemukan")
             try:
                 eps = webtoon.episodes(tno)
+                if not eps:
+                    eps = webtoon.episodes(tno, kind='canvas')
             except Exception:
                 eps = []
             genres = [wt_meta['genre']] if wt_meta.get('genre') else []
