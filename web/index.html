@@ -1496,9 +1496,11 @@ async function pageDetail(slug) {
     const typeVal = d.type || '';
     const statusVal = d.status || '';
     const ratingVal = d.rating || '';
+    const authorVal = d.author || d.info?.Author || '';
+    const sourceLabel = d.source === 'webtoon' ? 'LINE Webtoon' : d.source === 'kiryuu' ? 'Kiryuu' : d.source === 'komiku' ? 'Komiku' : (d.source ? esc(d.source) : '');
     const breadcrumb = `<nav class="crumb" aria-label="Breadcrumb">
       <a href="/">Home</a><span>/</span>
-      ${typeVal ? `<a href="/explore?type=${esc(typeVal.toLowerCase())}">${esc(typeVal)}</a><span>/</span>` : ''}
+      ${typeVal && typeVal.toLowerCase() !== 'webtoon' ? `<a href="/explore?type=${esc(typeVal.toLowerCase())}">${esc(typeVal)}</a><span>/</span>` : (typeVal ? `<span>${esc(typeVal)}</span><span>/</span>` : '')}
       ${genres[0] ? `<a href="/genre/${encodeURIComponent(genres[0].toLowerCase().replace(/\s+/g,'-'))}">${esc(genres[0])}</a><span>/</span>` : ''}
       <span aria-current="page">${esc(d.title)}</span></nav>`;
     // Hero meta: escaped per value, joined with symmetric separators.
@@ -1515,6 +1517,8 @@ async function pageDetail(slug) {
       ['Rating', ratingVal ? `★ ${ratingVal}` : '-'],
       ['Type', typeVal || '-'],
     ];
+    if (authorVal) factsItems.push(['Author', authorVal]);
+    if (sourceLabel) factsItems.push(['Source', sourceLabel]);
     const factsHtml = factsItems.map(([label, val]) =>
       `<div><dt>${label}</dt><dd>${esc(val)}</dd></div>`
     ).join('');

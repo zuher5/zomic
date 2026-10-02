@@ -19,6 +19,7 @@ from PIL import Image, features
 
 from komiku_web import KomikuWeb, retry_get, genre_name, normalize_genre
 from kiryuu_web import KiryuuWeb, _humanize_slug
+from webtoon_web import WebtoonWeb
 
 log = logging.getLogger("zomic")
 
@@ -560,6 +561,7 @@ class KomikuAPI:
 api = KomikuAPI()
 web = KomikuWeb()
 kiryuu = KiryuuWeb()
+webtoon = WebtoonWeb()
 
 
 def _en_item_genre(card):
@@ -571,12 +573,12 @@ def _en_item_genre(card):
         card['genre'] = normalize_genre(genre)
 
 
-def _merge_items(komiku_items, kiryuu_items):
-    """Gabung listing komiku + kiryuu tanpa duplikat slug.
+def _merge_items(komiku_items, kiryuu_items, webtoon_items=None):
+    """Gabung listing komiku + kiryuu + webtoon tanpa duplikat slug.
 
     Semua item komiku didahulukan (urutan ditentukan komiku). Item kiryuu
-    yang slugnya belum ada di komiku ditambahkan di belakang. Setiap item
-    mendapat key 'source' = 'komiku' | 'kiryuu' | 'both'.
+    dan webtoon yang slugnya belum ada ditambahkan di belakang.
+    Setiap item mendapat key 'source' = 'komiku' | 'kiryuu' | 'webtoon' | 'both'.
 
     Dedup dilakukan DUA lapis: slug (persis) dan judul ternormalisasi.
     Slug berbeda tapi judul sama sering muncul (mis. komiku
@@ -621,6 +623,22 @@ def _merge_items(komiku_items, kiryuu_items):
         if norm:
             titles.add(norm)
         card['source'] = 'kiryuu'
+        _en_item_genre(card)
+        out.append(card)
+    for card in (webtoon_items or []):
+        tno = card.get('title_no')
+        raw_slug = card.get('slug') or ''
+        wt_slug = f"wt-{tno}" if tno else (raw_slug if raw_slug.startswith('wt-') else f"wt-{raw_slug}")
+        card['slug'] = wt_slug
+        norm = _norm_title(card.get('title'))
+        if wt_slug in seen or (norm and norm in titles):
+            continue
+        seen.add(wt_slug)
+        if norm:
+            titles.add(norm)
+        card['source'] = 'webtoon'
+        if not card.get('type'):
+            card['type'] = 'webtoon'
         _en_item_genre(card)
         out.append(card)
     return out
@@ -845,18 +863,18 @@ async def _rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-def _parallel(first_fn, second_fn):
-    """Jalankan dua producer independen secara paralel; kembalikan (r1, r2).
+def _parallel(*fns):
+    """Jalankan fungsi-fungsi secara konkuren di thread pool.
 
     Semantik error tidak berubah: exception dari salah satu sisi di-raise
     kembali saat .result() dipanggil sesuai urutan submit, jadi sisi yang
     me-raise di kode sequential tetap me-raise di sini. Tangkap exception
     di dalam fn bila sisi itu memang menoleransi kegagalan (pola kiryuu).
     """
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f1 = ex.submit(first_fn)
-        f2 = ex.submit(second_fn)
-        return f1.result(), f2.result()
+    with ThreadPoolExecutor(max_workers=max(1, len(fns))) as ex:
+        futures = [ex.submit(fn) for fn in fns]
+        results = [f.result() for f in futures]
+    return tuple(results) if len(results) > 1 else results[0]
 
 
 def cached(key, producer, ttl=3600, stale_ttl=21600):
@@ -962,10 +980,19 @@ def latest(page: int = Query(1, ge=1), response: Response = None):
                 log.warning("kiryuu.home(latest) gagal: %s", e)
                 return []
 
-        komiku_data, kiryuu_data = _parallel(_komiku, _kiryuu)
-        if komiku_data is None and not kiryuu_data:
-            raise requests.RequestException("latest: kedua upstream gagal")
-        return _merge_items(komiku_data or [], kiryuu_data or [])
+        def _webtoon():
+            if page > 1:
+                return []
+            try:
+                return webtoon.home(1)
+            except Exception as e:
+                log.warning("webtoon.home(latest) gagal: %s", e)
+                return []
+
+        komiku_data, kiryuu_data, webtoon_data = _parallel(_komiku, _kiryuu, _webtoon)
+        if komiku_data is None and not kiryuu_data and not webtoon_data:
+            raise requests.RequestException("latest: semua upstream gagal")
+        return _merge_items(komiku_data or [], kiryuu_data or [], webtoon_data or [])
 
     data = cached(f"latest_{page}", _latest, ttl=1800)
     _edge_cache(response, s_maxage=300, swr=2700)
@@ -1011,12 +1038,19 @@ def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(
                 log.warning("kiryuu.search(%s) gagal: %s", q, e)
                 return []
 
-        komiku_data, kiryuu_items = _parallel(_komiku, _kiryuu)
-        if komiku_data is None and not kiryuu_items:
-            raise requests.RequestException("search: kedua upstream gagal")
+        def _webtoon():
+            try:
+                return webtoon.search(q, page)
+            except Exception as e:
+                log.warning("webtoon.search(%s) gagal: %s", q, e)
+                return []
+
+        komiku_data, kiryuu_items, webtoon_items = _parallel(_komiku, _kiryuu, _webtoon)
+        if komiku_data is None and not kiryuu_items and not webtoon_items:
+            raise requests.RequestException("search: semua upstream gagal")
         komiku_data = komiku_data or {'items': [], 'page': page, 'per_page': 10,
                                       'query': q, 'has_next': False}
-        komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items or [])
+        komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items or [], webtoon_items or [])
         return komiku_data
 
     data = cached(f"search_{q.lower()}_{page}", _search, ttl=900)
@@ -1040,16 +1074,23 @@ def genres(response: Response = None):
                 log.warning("kiryuu.genres() gagal: %s", e)
                 return []
 
-        komiku_genres, kiryuu_genres = _parallel(_komiku, _kiryuu)
-        if komiku_genres is None and not kiryuu_genres:
-            raise requests.RequestException("genres: kedua upstream gagal")
+        def _webtoon():
+            try:
+                return webtoon.genres()
+            except Exception as e:
+                log.warning("webtoon.genres() gagal: %s", e)
+                return []
+
+        komiku_genres, kiryuu_genres, wt_genres = _parallel(_komiku, _kiryuu, _webtoon)
+        if komiku_genres is None and not kiryuu_genres and not wt_genres:
+            raise requests.RequestException("genres: semua upstream gagal")
         # Merge genre lists by slug; prefer komiku names, add kiryuu-unique
         seen = set()
         out = []
         for g in komiku_genres or []:
             seen.add(g['slug'])
             out.append(g)
-        for g in kiryuu_genres or []:
+        for g in (kiryuu_genres or []) + (wt_genres or []):
             if g['slug'] not in seen:
                 seen.add(g['slug'])
                 out.append(g)
@@ -1078,10 +1119,17 @@ def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Respon
                 log.warning("kiryuu.by_genre(%s) gagal: %s", slug, e)
                 return {}
 
-        komiku_data, kiryuu_data = _parallel(_komiku, _kiryuu)
+        def _webtoon():
+            try:
+                return webtoon.by_genre(slug, page)
+            except Exception as e:
+                log.warning("webtoon.by_genre(%s) gagal: %s", slug, e)
+                return []
+
+        komiku_data, kiryuu_data, wt_items = _parallel(_komiku, _kiryuu, _webtoon)
         kiryuu_items = (kiryuu_data or {}).get('items', [])
-        if komiku_data is None and not kiryuu_items:
-            raise requests.RequestException("genre: kedua upstream gagal")
+        if komiku_data is None and not kiryuu_items and not wt_items:
+            raise requests.RequestException("genre: semua upstream gagal")
         komiku_data = komiku_data or {'items': [], 'page': page, 'per_page': 10,
                                       'genre': slug, 'has_next': False}
         # Merge pagination: gunakan max total_pages dari kedua sumber
@@ -1089,7 +1137,7 @@ def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Respon
         if kiryuu_data_max > komiku_data.get('total_pages', 0):
             komiku_data['total_pages'] = kiryuu_data_max
             komiku_data['has_next'] = kiryuu_data.get('has_next', False)
-        komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items)
+        komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items, wt_items)
         return komiku_data
 
     data = cached(f"genre_{slug}_{page}", _genre, ttl=1800)
@@ -1128,14 +1176,21 @@ def popular(response: Response = None):
                 log.warning("kiryuu.popular() gagal: %s", e)
                 return []
 
-        komiku_groups, kiryuu_pop = _parallel(_komiku, _kiryuu)
-        if komiku_groups is None and not kiryuu_pop:
-            raise requests.RequestException("popular: kedua upstream gagal")
+        def _webtoon():
+            try:
+                return webtoon.popular()
+            except Exception as e:
+                log.warning("webtoon.popular() gagal: %s", e)
+                return []
+
+        komiku_groups, kiryuu_pop, wt_pop = _parallel(_komiku, _kiryuu, _webtoon)
+        if komiku_groups is None and not kiryuu_pop and not wt_pop:
+            raise requests.RequestException("popular: semua upstream gagal")
         out = []
         komiku_map = {g['key']: g for g in (komiku_groups or [])}
         for t in ('manga', 'manhwa', 'manhua'):
             k_group = komiku_map.get(t)
-            matching = [c for c in kiryuu_pop if str(c.get('type') or '').lower() == t]
+            matching = [c for c in (kiryuu_pop or []) if str(c.get('type') or '').lower() == t]
             for c in matching:
                 c['source'] = 'kiryuu'
                 _en_item_genre(c)
@@ -1144,6 +1199,8 @@ def popular(response: Response = None):
                 items = _merge_items(k_group['items'], matching) if matching else k_group['items']
             elif matching:
                 items = matching
+            if t == 'manhwa' and wt_pop:
+                items = _merge_items(items, [], wt_pop)
             if items:
                 out.append({'key': t, 'title': f"{t.title()} Populer", 'items': items})
         return out
@@ -1170,10 +1227,17 @@ def recommended(response: Response = None):
                 log.warning("kiryuu.home(recommended) gagal: %s", e)
                 return []
 
-        komiku_items, kiryuu_items = _parallel(_komiku, _kiryuu)
-        if komiku_items is None and not kiryuu_items:
-            raise requests.RequestException("recommended: kedua upstream gagal")
-        return _merge_items(komiku_items or [], kiryuu_items or [])
+        def _webtoon():
+            try:
+                return webtoon.popular()[:20]
+            except Exception as e:
+                log.warning("webtoon.popular(recommended) gagal: %s", e)
+                return []
+
+        komiku_items, kiryuu_items, wt_items = _parallel(_komiku, _kiryuu, _webtoon)
+        if komiku_items is None and not kiryuu_items and not wt_items:
+            raise requests.RequestException("recommended: semua upstream gagal")
+        return _merge_items(komiku_items or [], kiryuu_items or [], wt_items or [])
 
     data = cached("recommended", _recommended, ttl=3600)
     _edge_cache(response, s_maxage=600, swr=3600)
@@ -1194,6 +1258,46 @@ def colored(response: Response = None):
 @app.get("/api/detail/{slug}")
 def detail(slug: str, response: Response = None):
     def _detail():
+        if slug.startswith(('wt-', 'webtoon-')) or slug.isdigit():
+            m = re.match(r'^(?:wt-|webtoon-)?(\d+)$', slug)
+            tno = int(m.group(1)) if m else None
+            if not tno:
+                raise HTTPException(status_code=404, detail="komik tidak ditemukan")
+            try:
+                wt_meta = webtoon.detail(tno)
+            except Exception as e:
+                log.warning("webtoon.detail(%s) gagal: %s", tno, e)
+                raise requests.RequestException(f"upstream detail error (webtoon={e})")
+            if not wt_meta:
+                raise HTTPException(status_code=404, detail="komik tidak ditemukan")
+            try:
+                eps = webtoon.episodes(tno)
+            except Exception:
+                eps = []
+            genres = [wt_meta['genre']] if wt_meta.get('genre') else []
+            return {
+                'title': wt_meta.get('title') or _humanize_slug(slug),
+                'slug': f"wt-{tno}",
+                'alt_title': '',
+                'sinopsis': wt_meta.get('synopsis') or '-',
+                'cover': wt_meta.get('cover') or '',
+                'genre': genres,
+                'type': 'Webtoon',
+                'status': (wt_meta.get('status') or 'ongoing').capitalize(),
+                'author': wt_meta.get('author') or '',
+                'rating': '',
+                'readers': '',
+                'info': {
+                    'Author': wt_meta.get('author') or '',
+                    'Status': (wt_meta.get('status') or 'ongoing').capitalize(),
+                    'Tipe': 'Webtoon',
+                },
+                'similar': [],
+                'chapters': eps,
+                'total_chapters': len(eps),
+                'source': 'webtoon',
+            }
+
         def _komiku():
             try:
                 return (api.detail(slug), 0)
@@ -1259,6 +1363,20 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
     key = f"chap_{slug}_{chapter}"
 
     def _chapter():
+        if slug.startswith(('wt-', 'webtoon-')) or slug.isdigit():
+            m = re.match(r'^(?:wt-|webtoon-)?(\d+)$', slug)
+            tno = int(m.group(1)) if m else None
+            if not tno:
+                raise HTTPException(status_code=404, detail="chapter tidak ditemukan")
+            try:
+                imgs = webtoon.chapter_images(tno, chapter)
+                if imgs:
+                    return imgs
+            except Exception as e:
+                log.warning("webtoon.chapter_images(%s, %s) gagal: %s", tno, chapter, e)
+                raise requests.RequestException(f"upstream chapter error (webtoon={e})")
+            raise HTTPException(status_code=404, detail="chapter tidak ditemukan")
+
         # kiryuu DIUTAMAKAN (paling stabil dari cloud). Slug mentah dicoba
         # dulu (judul yang sama di kedua sumber); bila kosong, resolve slug
         # kiryuu dari judul komiku. komiku (apiLink benar) jadi fallback.
@@ -1308,7 +1426,7 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
 # --- IMAGE PROXY (cover, optimized) ---
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
 # open proxy / vektor SSRF (bisa dipakai menembak jaringan internal).
-IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id')
+IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'pstatic.net', 'webtoons.com')
 # CDN gambar bisa berganti di luar kontrol kita (dulu image*.komiku.to,
 # sekarang cdnkuma.my.id). Tambahan suffix via env tanpa redeploy kode:
 # IMG_HOST_SUFFIXES_EXTRA="cdn-baru.example.com,cdn-lain.example.net"
@@ -1508,6 +1626,8 @@ MAX_IMG_REDIRECTS = 3
 def _img_referer(url):
     """Referer per-request berdasarkan host sumber (bukan mutasi session bersama)."""
     low = url.lower()
+    if 'pstatic.net' in low or 'webtoons.com' in low:
+        return 'https://www.webtoons.com/'
     return 'https://v7.kiryuu.to/' if ('kiryuu.to' in low or 'yuucdn.com' in low) else 'https://komiku.org/'
 
 

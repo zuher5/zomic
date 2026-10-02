@@ -15,13 +15,15 @@ gambar ter-proxy (lolos hotlink protection).
 - Favorit, riwayat baca, penanda chapter sudah dibaca (tersimpan di browser via localStorage)
 - Filter tipe (manga/manhwa/manhua) & huruf awal A–Z
 - Tema gelap/terang
-- Proxy gambar ter-batas: hanya host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, dan `*.uqni.net` yang diizinkan (anti-SSRF)
+- Proxy gambar ter-batas: hanya host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, `*.uqni.net`, `*.pstatic.net`, dan `*.webtoons.com` yang diizinkan (anti-SSRF)
 
 ## Struktur
 
 ```
 app.py           Backend FastAPI (endpoint + serve frontend)
 komiku_web.py    Scraper HTML komiku.org (katalog, search, genre)
+kiryuu_web.py    Scraper HTML v7.kiryuu.to (alternatif/fallback)
+webtoon_web.py   Scraper LINE Webtoon ID (www & m.webtoons.com)
 web/index.html   Frontend SPA (hash router, tanpa build)
 run.sh           Auto-setup venv + deps + verifikasi + jalankan
 requirements.txt Dependensi Python
@@ -113,19 +115,21 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/colored` | Komik berwarna |
 | `/api/detail/{slug}` | Detail komik + chapter |
 | `/api/chapter/{slug}/{chapter}` | Daftar URL gambar (array) |
-| `/api/img?url=` | Proxy gambar legacy (allowlist `*.komiku.org` / `*.komiku.id` / `*.komiku.to` / `*.kiryuu.to` / `*.yuucdn.com` / `*.uqni.net`) |
+| `/api/img?url=` | Proxy gambar legacy (allowlist `*.komiku.org` / `*.komiku.id` / `*.komiku.to` / `*.kiryuu.to` / `*.yuucdn.com` / `*.uqni.net` / `*.pstatic.net` / `*.webtoons.com`) |
 | `/api/img?url=&w=&format=&q=` | Proxy cover ter-optimasi (resize + AVIF/WebP/JPEG + cache) |
 | `/health` | Status server + katalog |
 
 ### Sumber chapter (`/api/chapter`)
 
-Urutan: **kiryuu dulu → komiku fallback**. Slug komiku tidak selalu ada di
-kiryuu, jadi slug kiryuu di-resolve dari judul (`kiryuu.search` + cache
-`kiryuu_slug_*`, TTL 1 hari). Sisi komiku memakai slug namespace
-`baca-chapter` yang otoritatif dari `apiLink` tiap chapter di JSON detail
-(mis. listing `manga-one-punch-man` → baca `one-punch-man`), di-cache
-`baca_slug_*` TTL 7 hari — memanggil `baca-chapter` dengan slug listing
-menghasilkan HTTP 500 dari API pihak ketiga.
+Urutan:
+- **LINE Webtoon** bila slug diawali `wt-` / `webtoon-` atau format angka murni `title_no`. Mengambil daftar gambar langsung dari desktop viewer LINE Webtoon.
+- **Kiryuu dulu → Komiku fallback** untuk slug biasa. Slug komiku tidak selalu ada di
+  kiryuu, jadi slug kiryuu di-resolve dari judul (`kiryuu.search` + cache
+  `kiryuu_slug_*`, TTL 1 hari). Sisi komiku memakai slug namespace
+  `baca-chapter` yang otoritatif dari `apiLink` tiap chapter di JSON detail
+  (mis. listing `manga-one-punch-man` → baca `one-punch-man`), di-cache
+  `baca_slug_*` TTL 7 hari — memanggil `baca-chapter` dengan slug listing
+  menghasilkan HTTP 500 dari API pihak ketiga.
 
 ## Image Proxy
 
@@ -141,7 +145,7 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 - `w`: integer 120–800 (tidak pernah upscale).
 - `q`: integer 45–95.
 - `format`: `auto` (AVIF → WebP → JPEG sesuai `Accept`), `original`, `webp`, `avif`.
-- Hanya host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, dan `*.uqni.net` (tolak localhost/private IP/SSRF).
+- Hanya host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, `*.uqni.net`, `*.pstatic.net`, dan `*.webtoons.com` (tolak localhost/private IP/SSRF).
 - Batas download 12 MB dan batas dimensi 25 MP (anti decompression bomb).
 - Cache disk `SHA-256` (url + w + format + q), atomic write, evict tertua saat
   melebihi batas, header `Cache-Control: public, max-age=2592000, immutable`.
@@ -280,7 +284,7 @@ Render.com tidak dipakai dan konfigurasinya (`render.yaml`) telah dihapus.
 
 ## Keamanan
 
-- `/api/img` hanya memproxy host yang berakhiran `komiku.org`, `komiku.id`, `komiku.to`, `kiryuu.to`, `yuucdn.com`, atau `uqni.net` (subdomain sesuai, suffix exact match → host seperti `komiku.org.evil.com` ditolak).
+- `/api/img` hanya memproxy host yang berakhiran `komiku.org`, `komiku.id`, `komiku.to`, `kiryuu.to`, `yuucdn.com`, `uqni.net`, `pstatic.net`, atau `webtoons.com` (subdomain sesuai, suffix exact match → host seperti `komiku.org.evil.com` ditolak).
   URL ke IP internal (`169.254.*`, `localhost`, alamat LAN) tidak lolos allowlist →
   mencegah SSRF. Scheme selain `http/https` ditolak.
 - Download dibatasi (12 MB) dan dimensi dibatasi (25 MP) untuk mencegah

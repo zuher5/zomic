@@ -35,6 +35,7 @@ import os
 import re
 import threading
 import time
+from datetime import datetime
 from urllib.parse import quote_plus, urlparse, parse_qs
 
 import requests
@@ -102,10 +103,10 @@ def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY
 
 HEADERS = {
     'User-Agent': (
-        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ),
-    'Accept': 'text/html,application/xhtml+xml,application/json',
+    'Accept': 'text/html,application/xhtml+xml,application/json,*/*',
     'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
     'Referer': SITE + '/',
 }
@@ -198,16 +199,23 @@ class WebtoonWeb:
     def _parse_cards(raw, limit=PER_PAGE):
         """Kartu komik dari halaman katalog. Dedup per title_no."""
         out, seen = [], set()
-        for genre, slug, tno in _CARD_LINK_RE.findall(raw or ''):
+        for m in _CARD_LINK_RE.finditer(raw or ''):
+            genre, slug, tno = m.group(1), m.group(2), m.group(3)
             if tno in seen:
                 continue
             seen.add(tno)
+            chunk = (raw or '')[m.start():m.start() + 1200]
+            img_m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', chunk)
+            cover = _fix_cdn(img_m.group(1)) if img_m else ''
+            alt_m = re.search(r'<img[^>]+alt=["\']([^"\']+)["\']', chunk)
+            title = _text(alt_m.group(1)) if (alt_m and alt_m.group(1)) else _humanize_slug(slug)
             out.append({
-                'title': _humanize_slug(slug),
+                'title': title,
                 'slug': slug,
                 'title_no': int(tno),
                 'type': 'webtoon',
                 'genre': genre,
+                'cover': cover,
                 'url': f"{SITE}/{LANG}/{genre}/{slug}/list?title_no={tno}",
             })
             if len(out) >= limit:
@@ -239,13 +247,14 @@ class WebtoonWeb:
         return self._parse_cards(raw)
 
     def by_genre(self, genre, page=1):
-        url = f"{SITE}/{LANG}/{genre}/list?page={page}" if page > 1 \
-            else f"{SITE}/{LANG}/{genre}/list"
+        url = f"{SITE}/{LANG}/genres/{genre}"
         try:
             raw = self._fetch(url).text
         except requests.RequestException:
             return []
-        return self._parse_cards(raw)
+        all_cards = self._parse_cards(raw, limit=999)
+        start = (page - 1) * PER_PAGE
+        return all_cards[start:start + PER_PAGE]
 
     def genres(self):
         """Genre diturunkan dari href katalog di beranda — stabil, karena
@@ -292,12 +301,15 @@ class WebtoonWeb:
         if genre and slug:
             url = f"{SITE}/{LANG}/{genre}/{slug}/list?title_no={title_no}"
         else:
-            for c in self.home(1):
-                if c['title_no'] == int(title_no):
-                    url = c['url']
-                    break
-        if not url:
-            return None
+            try:
+                for c in self.home(1):
+                    if c.get('title_no') == int(title_no):
+                        url = c.get('url')
+                        break
+            except Exception:
+                pass
+            if not url:
+                url = f"{SITE}/{LANG}/x/y/list?title_no={title_no}"
         try:
             raw = self._fetch(url).text
         except requests.RequestException:
@@ -379,23 +391,41 @@ class WebtoonWeb:
             link = e.get('viewerLink') or ''
             if not link:
                 continue
+            d_str = ''
+            if exp > 0:
+                try:
+                    d_str = datetime.fromtimestamp(exp / 1000).strftime('%d %b %Y')
+                except Exception:
+                    d_str = str(exp)
             out.append({
+                'ch': str(no),
                 'chapter': str(no),
                 'title': e.get('episodeTitle') or f'Episode {no}',
                 'url': link if link.startswith('http') else SITE + link,
-                'date': exp,
+                'date': d_str,
+                'exposure_millis': exp,
                 'has_bgm': bool(e.get('hasBgm')),
             })
         out.sort(key=lambda c: float(c['chapter']))
         return out
 
-    def chapter_images(self, url):
+    def chapter_images(self, url_or_title_no, chapter=None):
         """URL panel dari halaman viewer, SUDAH dibersihkan.
 
+        Bisa dipanggil dengan viewer URL langsung, atau (title_no, chapter).
         Hanya panel: buang `thumb_*`, `*_warning.png`, logo/icon/button, dan
         aset UI lain. Tanpa filter ini reader menampilkan ratusan thumbnail
         sebelum panel pertama.
         """
+        if not url_or_title_no:
+            return []
+        url = url_or_title_no
+        if chapter is not None or (isinstance(url_or_title_no, int) or str(url_or_title_no).isdigit()):
+            eps = self.episodes(url_or_title_no)
+            ep = next((e for e in eps if str(e.get('ch', e.get('chapter', ''))) == str(chapter)), None)
+            if not ep:
+                return []
+            url = ep.get('url')
         if not url:
             return []
         try:

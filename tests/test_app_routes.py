@@ -11,6 +11,18 @@ class ApiRoutesTest(unittest.TestCase):
     def setUp(self):
         cache.clear()
         self.client = TestClient(app)
+        for meth, ret in [
+            ('popular', []),
+            ('home', []),
+            ('search', []),
+            ('by_genre', []),
+            ('detail', {}),
+            ('episodes', []),
+            ('chapter_images', []),
+        ]:
+            p = patch.object(app_module.webtoon, meth, return_value=ret)
+            p.start()
+            self.addCleanup(p.stop)
 
     def test_img_proxy_blocks_foreign_and_internal_hosts(self):
         for url in (
@@ -29,9 +41,13 @@ class ApiRoutesTest(unittest.TestCase):
         self.assertTrue(allowed("img.komiku.org"))
         self.assertTrue(allowed("komiku.org"))
         self.assertTrue(allowed("thumbnail.komiku.org:443"))
+        self.assertTrue(allowed("webtoon-phinf.pstatic.net"))
+        self.assertTrue(allowed("swebtoon-phinf.pstatic.net"))
+        self.assertTrue(allowed("www.webtoons.com"))
         self.assertTrue(allowed("cdn.uqni.net"))
         self.assertTrue(allowed("uqni.net"))
         self.assertFalse(allowed("komiku.org.evil.com"))
+        self.assertFalse(allowed("pstatic.net.evil.com"))
         self.assertFalse(allowed("uqni.net.evil.com"))
         self.assertFalse(allowed("notkomiku.org"))
         self.assertFalse(allowed(None))
@@ -212,6 +228,61 @@ class ApiRoutesTest(unittest.TestCase):
                           side_effect=_req.ConnectionError('boom')), \
              patch.object(app_module.kiryuu, 'popular', return_value=[]):
             self.assertEqual(self.client.get('/api/popular').status_code, 502)
+
+    def test_webtoon_detail_success(self):
+        wt_meta = {
+            'title': 'Serena',
+            'title_no': 5001,
+            'genre': 'Romantis',
+            'synopsis': 'Sinopsis Serena',
+            'cover': 'https://swebtoon-phinf.pstatic.net/serena.jpg',
+            'author': 'Yuu Nabata',
+            'status': 'ongoing',
+        }
+        wt_eps = [
+            {'chapter': '1', 'title': 'Ep 1', 'ch': '1', 'url': 'https://...'},
+            {'chapter': '2', 'title': 'Ep 2', 'ch': '2', 'url': 'https://...'},
+        ]
+        with patch.object(app_module.webtoon, 'detail', return_value=wt_meta), \
+             patch.object(app_module.webtoon, 'episodes', return_value=wt_eps):
+            res = self.client.get('/api/detail/wt-5001')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data['title'], 'Serena')
+        self.assertEqual(data['slug'], 'wt-5001')
+        self.assertEqual(data['source'], 'webtoon')
+        self.assertEqual(data['total_chapters'], 2)
+        self.assertEqual(data['cover'], 'https://swebtoon-phinf.pstatic.net/serena.jpg')
+
+    def test_webtoon_detail_not_found(self):
+        with patch.object(app_module.webtoon, 'detail', return_value={}):
+            res = self.client.get('/api/detail/wt-99999')
+        self.assertEqual(res.status_code, 404)
+
+    def test_webtoon_chapter_success(self):
+        imgs = [
+            'https://swebtoon-phinf.pstatic.net/1.jpg',
+            'https://swebtoon-phinf.pstatic.net/2.jpg',
+        ]
+        with patch.object(app_module.webtoon, 'chapter_images', return_value=imgs):
+            res = self.client.get('/api/chapter/wt-5001/1')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), imgs)
+
+    def test_webtoon_chapter_not_found(self):
+        with patch.object(app_module.webtoon, 'chapter_images', return_value=[]):
+            res = self.client.get('/api/chapter/wt-5001/999')
+        self.assertEqual(res.status_code, 404)
+
+    def test_webtoon_search_merged(self):
+        wt_search = [{'title': 'Serena', 'title_no': 5001, 'cover': '', 'genre': 'Romantis'}]
+        with patch.object(app_module.web, 'search', return_value={'items': [], 'page': 1, 'per_page': 10, 'query': 'serena', 'has_next': False}), \
+             patch.object(app_module.kiryuu, 'search', return_value={'items': []}), \
+             patch.object(app_module.webtoon, 'search', return_value=wt_search):
+            res = self.client.get('/api/search?q=serena')
+        self.assertEqual(res.status_code, 200)
+        items = res.json().get('items', [])
+        self.assertTrue(any(i.get('slug') == 'wt-5001' and i.get('source') == 'webtoon' for i in items))
 
 
 class UnhandledExceptionTest(unittest.TestCase):
