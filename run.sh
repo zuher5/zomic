@@ -100,18 +100,18 @@ fi
 
 # STEP 2: Syntax Check
 echo -e "\n${YELLOW}[STEP 2] Cek Syntax Python...${NC}"
-if "$PY" -m py_compile app.py komiku_web.py kiryuu_web.py 2> syntax_error.log; then
+if "$PY" -m py_compile app.py komiku_web.py kiryuu_web.py webtoon_web.py 2> syntax_error.log; then
     echo -e "${PASS} Syntax valid."
 else
     echo -e "${FAIL} Syntax error! ${FIX} Menampilkan error...${NC}"
     cat syntax_error.log
 fi
 
-# STEP 3: Scraper Connectivity (REST API + katalog HTML komiku.org)
-echo -e "\n${YELLOW}[STEP 3] Test Koneksi ke Komiku & Selector...${NC}"
+# STEP 3: Scraper Connectivity (REST API + komiku.org + webtoons.com)
+echo -e "\n${YELLOW}[STEP 3] Test Koneksi ke Upstream & Selector...${NC}"
 "$PY" -c "
 import sys
-from app import api, web
+from app import api, web, webtoon
 try:
     latest = api.latest(1)
     if not latest:
@@ -119,7 +119,8 @@ try:
     cat = web.catalog(1)
     if not cat['items']:
         print('Gagal: katalog kosong (selector HTML mungkin berubah)'); sys.exit(1)
-    print(f\"OK: {len(latest)} komik terbaru, katalog {cat['total']} komik / {cat['total_pages']} halaman\")
+    wt = webtoon.home(1)
+    print(f\"OK: {len(latest)} komik terbaru, {len(wt)} webtoon, katalog {cat['total']} komik / {cat['total_pages']} halaman\")
     sys.exit(0)
 except Exception as e:
     print(f'Error: {e}')

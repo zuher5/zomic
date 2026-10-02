@@ -1927,9 +1927,9 @@ def _serve_index():
 # --- RUN ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    # 2 worker: endpoint sync + upstream lambat membuat 1 worker mudah macet
-    # antrean. Naikkan ke 4 bila RAM longgar (WORKERS=4).
-    workers = int(os.environ.get("WORKERS", 2))
+    # Android/Termux tidak punya /dev/shm; multiple workers uvicorn freeze di spawn.
+    def_workers = 1 if os.path.exists("/data/data/com.termux") else 2
+    workers = int(os.environ.get("WORKERS", def_workers))
     # workers>1 wajib import string (bukan app object) — objek + workers tidak
     # didukung uvicorn dan hanya print warning tanpa menjalankan multiple worker.
     target = "app:app" if workers and workers != 1 else app

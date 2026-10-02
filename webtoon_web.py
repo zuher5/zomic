@@ -449,3 +449,6 @@ class WebtoonWeb:
                 seen.add(fixed)
                 out.append(fixed)
         return out
+
+
+webtoon = WebtoonWeb()
