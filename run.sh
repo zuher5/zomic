@@ -100,7 +100,7 @@ fi
 
 # STEP 2: Syntax Check
 echo -e "\n${YELLOW}[STEP 2] Cek Syntax Python...${NC}"
-if "$PY" -m py_compile app.py komiku_web.py kiryuu_web.py 2> syntax_error.log; then
+if "$PY" -m py_compile app.py komiku_web.py kiryuu_web.py sanka_web.py voratoon_web.py 2> syntax_error.log; then
     echo -e "${PASS} Syntax valid."
 else
     echo -e "${FAIL} Syntax error! ${FIX} Menampilkan error...${NC}"
@@ -182,7 +182,7 @@ if [ "$FRONT_CODE" = "200" ]; then
 else
     echo -e "${FAIL} HTML tidak terkirim (code $FRONT_CODE)."
 fi
-for ep in "/api/latest" "/api/catalog?page=1" "/api/search?q=naruto" "/api/genres" "/api/popular"; do
+for ep in "/api/latest" "/api/catalog?page=1" "/api/search?q=naruto" "/api/genres" "/api/popular" "/api/voratoon/latest"; do
     CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "http://localhost:8000$ep" 2>/dev/null)
     if [ "$CODE" = "200" ]; then
         echo -e "   ${PASS} $ep"
