@@ -307,7 +307,6 @@ section.block{margin-top:var(--sp-6)}
   font-size:var(--t-meta);color:var(--muted);
 }
 .comic .meta .m-left{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.comic .meta .m-upd{flex:0 0 auto;white-space:nowrap}
 .comic .meta .dot{opacity:.5}
 
 .tag{
@@ -1119,24 +1118,21 @@ function card(c, sizes = S_GRID, hideType = false) {
   // First rows load eager, skipping native lazy heuristics.
   const eager = c._eager === true, prio = c._eager === true;
 
-  const leftParts = [];
-  if (c.chapter) leftParts.push(c.chapter);
-  if (c.rating) leftParts.push('★ ' + c.rating);
-  else if (!c.update && c.genre) leftParts.push(c.genre);
-  const left = leftParts.slice(0, 2).map(esc).join(DOT);
-  const upd = c.update ? `<span class="m-upd">${esc(c.update)}</span>` : '';
+  // Metadata kartu hanya genre. Chapter/rating/update sengaja
+  // tidak ditampilkan di kartu explore & pencarian.
+  const left = c.genre ? esc(c.genre) : '';
   return `<article class="comic">
     <a class="cover" href="${href}" tabindex="-1" aria-hidden="true">
       <span class="ph">${initials(c.title)}</span>
       ${c.cover ? coverImg(c.cover, 300, sizes, eager, prio) : ''}
-      ${!hideType && c.type ? `<span class="tag">${esc(c.type)}</span>` : ''}
+      ${c.type ? `<span class="tag">${esc(c.type)}</span>` : ''}
       ${c.colored ? '<span class="tag color">Color</span>' : ''}
       ${isNew ? `<span class="tag new">NEW</span>` : ''}
     </a>
     <button class="fav" data-fav="${esc(slug)}" data-title="${esc(c.title)}" data-cover="${esc(c.cover || '')}"
       aria-pressed="${fav}" aria-label="${fav ? 'Remove from favorites' : 'Add to favorites'}">${favIcn(fav)}</button>
     <h3><a href="${href}">${esc(c.title)}</a></h3>
-    ${left || upd ? `<p class="meta"><span class="m-left">${left}</span>${upd}</p>` : ''}
+    ${left ? `<p class="meta"><span class="m-left">${left}</span></p>` : ''}
   </article>`;
 }
 const gridOf = (items, cls = 'grid', hideType = false, eagerFirst = 0) => {
@@ -1239,8 +1235,7 @@ async function pageHome() {
         <span class="n mono">${String(n + 1).padStart(2, '0')}</span>
         <span class="th">${c.cover ? coverImg(c.cover, 120, S_TH) : ''}</span>
         <span class="txt"><h3>${esc(c.title)}</h3>
-          <span class="meta">${joinDot([c.chapter, c.readers || c.genre])}</span></span>
-      </a>`).join('')}</div></div>`).join('');
+          <span class="meta">${esc(c.genre || '')}</span></span></a>`).join('')}</div></div>`).join('');
     return block('Popular This Week', `<div class="seg" role="tablist" aria-label="Popular comic types">${tabs}</div>${panels}`,
       MORE('/popular'), 'tabs');
   };

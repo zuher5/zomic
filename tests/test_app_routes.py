@@ -198,7 +198,6 @@ class ApiRoutesTest(unittest.TestCase):
         self.assertEqual(data[0]['items'][0]['source'], 'kiryuu')
 
     def test_popular_empty_komiku_groups_kiryuu(self):
-        import requests as _req
         with patch.object(app_module.api, 'popular', return_value=[]), \
              patch.object(app_module.kiryuu, 'popular',
                           return_value=[{'slug': 'x', 'title': 'X', 'type': 'manga', 'cover': ''}]), \
@@ -330,17 +329,17 @@ class VoratoonRoutesTest(unittest.TestCase):
         self.assertEqual(res.status_code, 404)
 
     def test_voratoon_direct_routes(self):
-        with patch.object(app_module.voratoon, 'latest', return_value=[{'slug': 'vt-1'}]) as m:
+        with patch.object(app_module.voratoon, 'latest', return_value=[{'slug': 'vt-1'}]):
             r1 = self.client.get('/api/voratoon/latest?page=1')
             self.assertEqual(r1.status_code, 200)
             self.assertEqual(r1.json()['items'], [{'slug': 'vt-1'}])
 
-        with patch.object(app_module.voratoon, 'detail', return_value={'title': 'X'}) as m:
+        with patch.object(app_module.voratoon, 'detail', return_value={'title': 'X'}):
             r2 = self.client.get('/api/voratoon/detail/x')
             self.assertEqual(r2.status_code, 200)
             self.assertEqual(r2.json()['title'], 'X')
 
-        with patch.object(app_module.voratoon, 'chapter_images', return_value=['https://cdn/1.jpg']) as m:
+        with patch.object(app_module.voratoon, 'chapter_images', return_value=['https://cdn/1.jpg']):
             r3 = self.client.get('/api/voratoon/chapter/x/1')
             self.assertEqual(r3.status_code, 200)
             self.assertEqual(r3.json()['images'], ['https://cdn/1.jpg'])

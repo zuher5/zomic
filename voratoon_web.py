@@ -9,11 +9,57 @@ import json
 import re
 import threading
 import time
-from urllib.parse import quote_plus, urljoin, urlparse
+from urllib.parse import quote_plus
+
+import socket
 
 import requests
 
 BASE = "https://v5.voratoon.com"
+
+# --- Resolver override utk v6.voratoon.com ---
+# Dari 04 Okt 2026, v5.voratoon.com mengalihkan (301) ke v6.voratoon.com,
+# tapi DNS perangkat ini sering gagal me-resolve v6 (No address associated).
+# SNI/TLS tetap memakai hostname asli dari URL — kita hanya memaksa
+# getaddrinfo mengembalikan IP Cloudflare-nya via DNS-over-HTTPS.
+_ORIG_GETADDRINFO = socket.getaddrinfo
+_V6_HOSTS = ('v6.voratoon.com', 'www.v6.voratoon.com')
+_V6_FALLBACK_IPS = ('104.21.39.242', '172.67.172.41')
+
+
+def _resolve_v6_ips():
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            'https://cloudflare-dns.com/dns-query?name=v6.voratoon.com&type=A',
+            headers={'accept': 'application/dns-json'})
+        data = json.load(urllib.request.urlopen(req, timeout=5))
+        ips = [a['data'] for a in data.get('Answer', []) if a.get('type') == 1]
+        if ips:
+            return ips
+    except Exception:
+        pass
+    return list(_V6_FALLBACK_IPS)
+
+
+_V6_IPS = _resolve_v6_ips()
+
+
+def _patched_getaddrinfo(host, *args, **kwargs):
+    if isinstance(host, str) and host in _V6_HOSTS:
+        # Kembalikan alamat IP Cloudflare; hostname URL/SNI tidak berubah.
+        results = []
+        for ip in _V6_IPS:
+            try:
+                results.extend(_ORIG_GETADDRINFO(ip, *args, **kwargs))
+            except socket.gaierror:
+                continue
+        if results:
+            return results
+    return _ORIG_GETADDRINFO(host, *args, **kwargs)
+
+
+socket.getaddrinfo = _patched_getaddrinfo
 
 # Status HTTP sementara yang boleh dicoba ulang.
 RETRY_STATUS = {429, 500, 502, 503, 504}
