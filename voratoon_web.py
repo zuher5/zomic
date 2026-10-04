@@ -139,7 +139,8 @@ class VoratoonWeb:
                        re.search(r'alt="Cover ([^"]+)"', a))
             title = _clean_text(title_m.group(1)) if title_m else _humanize_slug(slug)
 
-            cover_m = re.search(r'<img[^>]*src="(/api/cover\?src=[^"]+)"', a)
+            cover_m = (re.search(r'<img[^>]*src="(/api/cover\?src=[^"]+)"', a) or
+                       re.search(r'<img[^>]*src="([^"]+)"', a))
             cover = _fix_cover(cover_m.group(1)) if cover_m else ''
 
             ch_m = re.search(r'href="/series/[a-z0-9-]+/chapter/([0-9.]+)"', a)
@@ -151,7 +152,7 @@ class VoratoonWeb:
                 'title': title,
                 'cover': cover,
                 'chapter': f"Chapter {ch_num}" if ch_num else '',
-                'type': '',
+                'type': 'Manhwa',
                 'genre': '',
                 'status': '',
                 'rating': '',
@@ -190,7 +191,7 @@ class VoratoonWeb:
                 'title': title or _humanize_slug(slug),
                 'cover': cover,
                 'chapter': ch,
-                'type': '',
+                'type': 'Manhwa',
                 'genre': '',
                 'status': status,
                 'rating': '',
@@ -213,19 +214,26 @@ class VoratoonWeb:
             title_m = re.search(r'alt="Cover ([^"]+)"', chunk) or re.search(r'<h[1-5][^>]*>([^<]+)</h[1-5]>', chunk)
             title = _clean_text(title_m.group(1)) if title_m else _humanize_slug(slug)
 
-            cover_m = re.search(r'<img[^>]*src="(/api/cover\?src=[^"]+)"', chunk)
+            cover_m = (re.search(r'<img[^>]*src="(/api/cover\?src=[^"]+)"', chunk) or
+                       re.search(r'<img[^>]*src="([^"]+)"', chunk))
             cover = _fix_cover(cover_m.group(1)) if cover_m else ''
+
+            rating_m = re.search(r'class="comic-stars"[^>]*>[\s\S]*?<strong>([0-9.]+)</strong>', chunk)
+            rating = rating_m.group(1) if rating_m else ''
+
+            ch_m = re.search(r'Total\s*(?:<!--\s*-->)?\s*(\d+)\s*(?:<!--\s*-->)?\s*Chapters', chunk, re.I)
+            chapter = f"Ch. {ch_m.group(1)}" if ch_m else ''
 
             out.append({
                 'slug': f"vt-{slug}",
                 'raw_slug': slug,
                 'title': title,
                 'cover': cover,
-                'chapter': '',
-                'type': '',
+                'chapter': chapter,
+                'type': 'Manhwa',
                 'genre': '',
                 'status': '',
-                'rating': '',
+                'rating': rating,
                 'source': 'voratoon',
             })
         return out

@@ -217,7 +217,8 @@ class ApiRoutesTest(unittest.TestCase):
         import requests as _req
         with patch.object(app_module.api, 'popular', return_value=[]), \
              patch.object(app_module.kiryuu, 'popular',
-                          return_value=[{'slug': 'x', 'title': 'X', 'type': 'manga', 'cover': ''}]):
+                          return_value=[{'slug': 'x', 'title': 'X', 'type': 'manga', 'cover': ''}]), \
+             patch.object(app_module.voratoon, 'popular', return_value=[]):
             res = self.client.get('/api/popular')
         self.assertEqual(res.status_code, 200)
         data = res.json()

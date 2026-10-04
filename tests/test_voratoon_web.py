@@ -153,6 +153,8 @@ class TestVoratoonWeb(unittest.TestCase):
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0]['slug'], 'vt-magic-emperor')
             self.assertEqual(items[0]['title'], 'Magic Emperor')
+            self.assertEqual(items[0]['type'], 'Manhwa')
+            self.assertTrue(items[0]['cover'].startswith('https://v5.voratoon.com/api/cover'))
 
     def test_detail(self):
         web, fake_get = _mock_web({'/series/magic-emperor': DETAIL_HTML})

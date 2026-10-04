@@ -1368,20 +1368,34 @@ async function pageCatalog(page, params) {
   const title = TYPES.find(([v]) => v === type)?.[1] || 'Comics';
   const h = head('Catalog', title === 'Comics' ? 'Comics' : title);
   const gen = _routeGen;
-  view.innerHTML = h + filters + skelGrid(10);
+  const needFresh = (page === 1 && !letter);
+  view.innerHTML = h + filters + (needFresh ? block('New Comics', skelGrid(6)) + block('All Titles', skelGrid(10)) : skelGrid(10));
   try {
     const qs = new URLSearchParams({ page });
     if (type) qs.set('type', type);
     if (letter) qs.set('letter', letter);
-    const d = await api('/api/catalog?' + qs);
+    const [d, latestItems] = await Promise.all([
+      api('/api/catalog?' + qs),
+      needFresh ? api('/api/latest').catch(() => []) : Promise.resolve(null),
+    ]);
     if (gen !== _routeGen) return; // stale render, route moved on
     const sub = joinDot([
       d.total ? d.total.toLocaleString() + ' titles' : '',
       d.total_pages ? d.total_pages + ' pages' : '',
       letter ? 'Letter ' + letter : '',
     ]);
+    let freshBlock = '';
+    if (latestItems && latestItems.length) {
+      const filteredFresh = type
+        ? latestItems.filter(c => (c.type || '').toLowerCase() === type.toLowerCase())
+        : latestItems;
+      const topFresh = (filteredFresh.length ? filteredFresh : latestItems).slice(0, 12);
+      freshBlock = block('New Comics', gridOf(topFresh, 'grid', false, 6));
+    }
     view.innerHTML = head('Catalog', title === 'Comics' ? 'Comics' : title, sub) + filters +
-      gridOf(d.items) + pager(d.page, d.has_next, href, d.total_pages);
+      freshBlock +
+      (freshBlock ? block('All Titles', gridOf(d.items)) : gridOf(d.items)) +
+      pager(d.page, d.has_next, href, d.total_pages);
   } catch (e) { fail(e); }
 }
 
