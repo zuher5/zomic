@@ -1398,8 +1398,14 @@ async function pageCatalog(page, params) {
       }
       items = merged;
     }
+    const catalogCards = items.map(c => ({
+      ...c,
+      chapter: '',
+      update: '',
+      rating: '',
+    }));
     view.innerHTML = head('Catalog', title === 'Comics' ? 'Comics' : title, sub) + filters +
-      gridOf(items) + pager(d.page, d.has_next, href, d.total_pages);
+      gridOf(catalogCards) + pager(d.page, d.has_next, href, d.total_pages);
   } catch (e) { fail(e); }
 }
 
