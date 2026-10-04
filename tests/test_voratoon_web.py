@@ -137,6 +137,22 @@ class TestVoratoonWeb(unittest.TestCase):
             self.assertEqual(items[0]['source'], 'voratoon')
             self.assertEqual(items[1]['slug'], 'vt-magic-emperor')
 
+    def test_latest_next_data(self):
+        stream_html = r"""
+        <html><body>
+        <script>self.__next_f.push([1,"7:[\"$\",\"$L8\",null,{\"initialData\":[{\"id\":\"c1\",\"slug\":\"my-divine-power\",\"title\":\"My Divine Power\",\"cover\":\"https://cvr.voratoon.id/p.webp\",\"format\":\"MANHUA\",\"genres\":[{\"name\":\"Action\"},{\"name\":\"Fantasy\"}],\"chapters\":[{\"chapterNumber\":50,\"updatedAt\":\"2025-01-01T00:00:00Z\"}]}]}]"])</script>
+        </body></html>
+        """
+        web, fake_get = _mock_web({'/updates': stream_html})
+        with patch.object(web, '_fetch', side_effect=lambda u, **kw: fake_get(u).text):
+            items = web.latest(1)
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]['slug'], 'vt-my-divine-power')
+            self.assertEqual(items[0]['title'], 'My Divine Power')
+            self.assertEqual(items[0]['type'], 'Manhua')
+            self.assertEqual(items[0]['genre'], 'Action, Fantasy')
+            self.assertEqual(items[0]['chapter'], 'Chapter 50')
+
     def test_search(self):
         web, fake_get = _mock_web({'/browse?q=magic': BROWSE_HTML})
         with patch.object(web, '_fetch', side_effect=lambda u, **kw: fake_get(u).text):

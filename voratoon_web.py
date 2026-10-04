@@ -122,8 +122,82 @@ class VoratoonWeb:
 
     # -- parsing katalog / latest --
     @staticmethod
-    def _parse_latest_cards(html):
+    def _parse_latest_from_next_data(html):
+        """Coba ekstrak array initialData dari Next.js stream script."""
+        if not html or 'initialData' not in html:
+            return []
+        for s in re.findall(r'<script[^>]*>(.*?)</script>', html, re.S):
+            if 'initialData' not in s:
+                continue
+            clean = s.replace(r'\"', '"').replace(r'\\', '\\')
+            idx = clean.find('"initialData":[')
+            if idx == -1:
+                continue
+            start = idx + len('"initialData":')
+            depth = 0
+            end = -1
+            for i in range(start, len(clean)):
+                if clean[i] == '[':
+                    depth += 1
+                elif clean[i] == ']':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            if end != -1:
+                try:
+                    arr = json.loads(clean[start:end])
+                    out, seen = [], set()
+                    for item in arr:
+                        d = item.get('data') if isinstance(item.get('data'), dict) else item
+                        slug = d.get('slug')
+                        if not slug or slug in seen:
+                            continue
+                        seen.add(slug)
+                        title = d.get('title') or _humanize_slug(slug)
+                        cover = _fix_cover(d.get('coverImage') or d.get('cover') or '')
+                        format_val = (d.get('format') or 'manhwa').title()
+                        genres_list = []
+                        for g in d.get('genres', []):
+                            if isinstance(g, dict):
+                                if 'data' in g and isinstance(g['data'], dict) and g['data'].get('name'):
+                                    genres_list.append(g['data']['name'])
+                                elif g.get('name'):
+                                    genres_list.append(g['name'])
+                            elif isinstance(g, str):
+                                genres_list.append(g)
+                        genre_str = ', '.join(genres_list[:2]) if genres_list else ''
+                        status = (d.get('status') or '').title()
+                        rating = str(d.get('rating') or '')
+                        tot_ch = d.get('totalChapters')
+                        if not tot_ch and isinstance(d.get('chapters'), list) and d['chapters']:
+                            tot_ch = d['chapters'][0].get('chapterNumber') or len(d['chapters'])
+                        ch_str = f"Chapter {tot_ch}" if tot_ch else ''
+                        out.append({
+                            'slug': f"vt-{slug}",
+                            'raw_slug': slug,
+                            'title': title,
+                            'cover': cover,
+                            'chapter': ch_str,
+                            'type': format_val,
+                            'genre': genre_str,
+                            'status': status,
+                            'rating': rating,
+                            'source': 'voratoon',
+                        })
+                    if out:
+                        return out
+                except Exception:
+                    pass
+        return []
+
+    @classmethod
+    def _parse_latest_cards(cls, html):
         """Parse kartu dari halaman /updates."""
+        data_items = cls._parse_latest_from_next_data(html)
+        if data_items:
+            return data_items
+
         out, seen = [], set()
         articles = _ARTICLE_RE.findall(html or '')
         for a in articles:
