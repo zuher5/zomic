@@ -13,7 +13,7 @@ import os
 import re
 import threading
 import time
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import urlparse
 
 import requests
 
@@ -352,7 +352,7 @@ class KiryuuWeb:
         link_m = _CARD_LINK.search(block)
         if not link_m:
             return None
-        href, slug = link_m.group(1), link_m.group(2)
+        slug = link_m.group(2)
         if not slug or slug == 'unknown':
             return None
 
@@ -650,13 +650,12 @@ class KiryuuWeb:
         chapters = []
         ch_items = _CHAPTER_LIST_ITEM.findall(raw)
         seen_ch = set()
-        for ch_num, ch_href in ch_items:
+        for ch_num, _ch_href in ch_items:
             ch_clean = _clean_chapter_num(ch_num)
             if ch_clean and ch_clean not in seen_ch:
                 seen_ch.add(ch_clean)
                 # Cari tanggal dari blok sekitar
                 ch_block_start = raw.find(f'data-chapter-number="{ch_num}"')
-                date_str = ''
                 time_str = ''
                 if ch_block_start > 0:
                     ch_block = raw[ch_block_start:ch_block_start + 500]

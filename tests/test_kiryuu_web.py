@@ -1,6 +1,5 @@
 """Unit tests untuk kiryuu_web.py — parsing HTML kiryuu.to."""
 
-import json
 import unittest
 
 from kiryuu_web import KiryuuWeb, _clean_chapter_num, _clean_slug, _humanize_slug, _rating_float, _text
@@ -285,7 +284,6 @@ class TestDetail(unittest.TestCase):
         web = KiryuuWeb.__new__(KiryuuWeb)
         web.timeout = 5
         web._local = type('', (), {'session': None})()
-        original_fetch = web._fetch
         def mock_fetch(url, **kwargs):
             return DETAIL_PAGE_HTML
         web._fetch = mock_fetch
