@@ -100,7 +100,7 @@ fi
 
 # STEP 2: Syntax Check
 echo -e "\n${YELLOW}[STEP 2] Cek Syntax Python...${NC}"
-if "$PY" -m py_compile app.py komiku_web.py kiryuu_web.py sanka_web.py voratoon_web.py 2> syntax_error.log; then
+if "$PY" -m py_compile app.py komiku_web.py kiryuu_web.py voratoon_web.py 2> syntax_error.log; then
     echo -e "${PASS} Syntax valid."
 else
     echo -e "${FAIL} Syntax error! ${FIX} Menampilkan error...${NC}"

@@ -69,24 +69,8 @@ class ApiRoutesTest(unittest.TestCase):
         empty = {"items": [], "page": 1, "per_page": 10, "genre": "nope", "has_next": False}
         with patch.object(app_module.web, "by_genre", return_value=empty), \
              patch.object(app_module.kiryuu, "by_genre", return_value={'items': []}), \
-             patch.object(app_module.voratoon, "by_genre", return_value={'items': []}), \
-             patch.object(app_module.sanka, "latest", return_value={'items': []}):
+             patch.object(app_module.voratoon, "by_genre", return_value={'items': []}):
             self.assertEqual(self.client.get("/api/genre/nope").status_code, 404)
-
-    def test_genre_includes_sanka_items(self):
-        komiku_data = {"items": [{"title": "K", "slug": "k1", "cover": "", "genre": "Action", "status": "", "chapter": ""}],
-                        "page": 1, "per_page": 10, "genre": "action", "has_next": False}
-        sanka_items = [{'title': 'S Action', 'slug': 's1', 'cover': '', 'chapter': '1', 'source': 'westmanga', '_sanka_source': 'westmanga'}]
-        with patch.object(app_module.web, "by_genre", return_value=komiku_data), \
-             patch.object(app_module.api, "_resolve_portrait", side_effect=lambda xs: xs), \
-             patch.object(app_module.kiryuu, "by_genre", return_value={'items': []}), \
-             patch.object(app_module.voratoon, "by_genre", return_value={'items': []}), \
-             patch.object(app_module.sanka, "latest", return_value={'items': sanka_items, 'page': 1, 'has_next': False}), \
-             patch.object(app_module.sanka, "detail", return_value={'genres': [{'name': 'Action', 'slug': 'action'}]}):
-            res = self.client.get("/api/genre/action")
-        self.assertEqual(res.status_code, 200)
-        slugs = [i['slug'] for i in res.json()['items']]
-        self.assertIn('s1', slugs)
 
     def test_upstream_failure_becomes_502(self):
         import requests
@@ -232,8 +216,7 @@ class ApiRoutesTest(unittest.TestCase):
         with patch.object(app_module.api, 'popular',
                           side_effect=_req.ConnectionError('boom')), \
              patch.object(app_module.kiryuu, 'popular', return_value=[]), \
-             patch.object(app_module.voratoon, 'popular', return_value=[]), \
-             patch.object(app_module.sanka, 'latest', side_effect=_req.ConnectionError('boom')):
+             patch.object(app_module.voratoon, 'popular', return_value=[]):
             self.assertEqual(self.client.get('/api/popular').status_code, 502)
 
 
@@ -287,61 +270,6 @@ class UnhandledExceptionTest(unittest.TestCase):
         self.assertEqual(self.client.get('/health').status_code, 200)
 
 
-class SankaRoutesTest(unittest.TestCase):
-    def setUp(self):
-        cache.clear()
-        self.client = TestClient(app)
-
-    def test_latest_still_200_with_sanka_items(self):
-        sanka_items = [{'title': 'S', 'slug': 's1', 'cover': '', 'chapter': '1', 'source': 'westmanga'}]
-        with patch.object(app_module.api, 'latest', return_value=[{'title': 'K', 'slug': 'k1', 'cover': '', 'type': 'Manga', 'genre': '', 'status': '', 'chapter': '', 'readers': ''}]), \
-             patch.object(app_module.kiryuu, 'home', return_value={'items': []}), \
-             patch.object(app_module.sanka, 'latest', return_value={'items': sanka_items, 'page': 1, 'has_next': False}) as sm:
-            res = self.client.get('/api/latest')
-        self.assertEqual(res.status_code, 200)
-        sources = [it['source'] for it in res.json()]
-        self.assertIn('komiku', sources)
-        self.assertIn('sanka', sources)
-        self.assertTrue(any(it['slug'] == 's1' for it in res.json()))
-        from unittest.mock import call as _call
-        self.assertIn(_call('westmanga', 1), sm.call_args_list)
-        self.assertEqual(sm.call_count, 3)
-
-    def test_sanka_latest_valid(self):
-        payload = {'items': [{'title': 'A', 'slug': 'a', 'cover': '', 'chapter': '1', 'source': 'softkomik'}], 'page': 1, 'has_next': False}
-        with patch.object(app_module.sanka, 'latest', return_value=payload) as m:
-            res = self.client.get('/api/sanka/latest?source=softkomik&page=1')
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json(), payload)
-        m.assert_called_once_with('softkomik', 1)
-
-    def test_sanka_latest_invalid_source_400(self):
-        res = self.client.get('/api/sanka/latest?source=bogus&page=1')
-        self.assertEqual(res.status_code, 400)
-
-    def test_sanka_detail(self):
-        payload = {'title': 'D', 'slug': 'd', 'chapters': [], 'source': 'westmanga'}
-        with patch.object(app_module.sanka, 'detail', return_value=payload) as m:
-            res = self.client.get('/api/sanka/detail/westmanga/some-slug')
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json(), payload)
-        m.assert_called_once_with('westmanga', 'some-slug')
-
-    def test_sanka_detail_invalid_source_400(self):
-        self.assertEqual(self.client.get('/api/sanka/detail/bogus/x').status_code, 400)
-
-    def test_sanka_chapter(self):
-        imgs = ['https://img/1.webp']
-        with patch.object(app_module.sanka, 'chapter_images', return_value=imgs) as m:
-            res = self.client.get('/api/sanka/chapter/komikstation/comic-x/chapter-1')
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json(), {'images': imgs})
-        m.assert_called_once_with('komikstation', 'comic-x', 'chapter-1')
-
-    def test_sanka_chapter_invalid_source_400(self):
-        self.assertEqual(self.client.get('/api/sanka/chapter/bogus/c/ch').status_code, 400)
-
-
 class VoratoonRoutesTest(unittest.TestCase):
     def setUp(self):
         cache.clear()
@@ -355,8 +283,7 @@ class VoratoonRoutesTest(unittest.TestCase):
         vora_items = [{'title': 'V Comic', 'slug': 'vt-v1', 'cover': '', 'chapter': '1', 'source': 'voratoon'}]
         with patch.object(app_module.api, 'latest', return_value=[]), \
              patch.object(app_module.kiryuu, 'home', return_value={'items': []}), \
-             patch.object(app_module.voratoon, 'latest', return_value=vora_items), \
-             patch.object(app_module.sanka, 'latest', return_value={'items': []}):
+             patch.object(app_module.voratoon, 'latest', return_value=vora_items):
             res = self.client.get('/api/latest')
         self.assertEqual(res.status_code, 200)
         slugs = [it['slug'] for it in res.json()]
@@ -366,8 +293,7 @@ class VoratoonRoutesTest(unittest.TestCase):
         vora_items = [{'title': 'V Magic', 'slug': 'vt-v-magic', 'cover': '', 'chapter': '1', 'source': 'voratoon'}]
         with patch.object(app_module.web, 'search', return_value={'items': []}), \
              patch.object(app_module.kiryuu, 'search', return_value={'items': []}), \
-             patch.object(app_module.voratoon, 'search', return_value={'items': vora_items}), \
-             patch.object(app_module.sanka, 'latest', return_value={'items': []}):
+             patch.object(app_module.voratoon, 'search', return_value={'items': vora_items}):
             res = self.client.get('/api/search?q=magic')
         self.assertEqual(res.status_code, 200)
         slugs = [it['slug'] for it in res.json()['items']]

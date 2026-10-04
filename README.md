@@ -23,7 +23,6 @@ gambar ter-proxy (lolos hotlink protection).
 app.py           Backend FastAPI (endpoint + serve frontend)
 komiku_web.py    Scraper HTML komiku.org (katalog, search, genre)
 kiryuu_web.py    Scraper HTML kiryuu.to
-sanka_web.py     Scraper HTML upstream sanka
 voratoon_web.py  Scraper native v5.voratoon.com
 web/index.html   Frontend SPA (hash router, tanpa build)
 run.sh           Auto-setup venv + deps + verifikasi + jalankan
@@ -116,7 +115,7 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/colored` | Komik berwarna |
 | `/api/detail/{slug}` | Detail komik + chapter |
 | `/api/chapter/{slug}/{chapter}` | Daftar URL gambar (array) |
-| `/api/img?url=` | Proxy gambar legacy (allowlist komiku/kiryuu/sanka/voratoon) |
+| `/api/img?url=` | Proxy gambar legacy (allowlist komiku/kiryuu/voratoon) |
 | `/api/img?url=&w=&format=&q=` | Proxy cover ter-optimasi (resize + AVIF/WebP/JPEG + cache) |
 | `/health` | Status server + katalog |
 
