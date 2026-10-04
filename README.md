@@ -15,13 +15,16 @@ gambar ter-proxy (lolos hotlink protection).
 - Favorit, riwayat baca, penanda chapter sudah dibaca (tersimpan di browser via localStorage)
 - Filter tipe (manga/manhwa/manhua) & huruf awal A–Z
 - Tema gelap/terang
-- Proxy gambar ter-batas: hanya host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, dan `*.uqni.net` yang diizinkan (anti-SSRF)
+- Proxy gambar ter-batas: host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, `*.uqni.net`, `*.voratoon.com`, `*.voratoon.id` (anti-SSRF)
 
 ## Struktur
 
 ```
 app.py           Backend FastAPI (endpoint + serve frontend)
 komiku_web.py    Scraper HTML komiku.org (katalog, search, genre)
+kiryuu_web.py    Scraper HTML kiryuu.to
+sanka_web.py     Scraper HTML upstream sanka
+voratoon_web.py  Scraper native v5.voratoon.com
 web/index.html   Frontend SPA (hash router, tanpa build)
 run.sh           Auto-setup venv + deps + verifikasi + jalankan
 requirements.txt Dependensi Python
@@ -113,7 +116,7 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/colored` | Komik berwarna |
 | `/api/detail/{slug}` | Detail komik + chapter |
 | `/api/chapter/{slug}/{chapter}` | Daftar URL gambar (array) |
-| `/api/img?url=` | Proxy gambar legacy (allowlist `*.komiku.org` / `*.komiku.id` / `*.komiku.to` / `*.kiryuu.to` / `*.yuucdn.com` / `*.uqni.net`) |
+| `/api/img?url=` | Proxy gambar legacy (allowlist komiku/kiryuu/sanka/voratoon) |
 | `/api/img?url=&w=&format=&q=` | Proxy cover ter-optimasi (resize + AVIF/WebP/JPEG + cache) |
 | `/health` | Status server + katalog |
 

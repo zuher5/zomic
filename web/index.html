@@ -1515,6 +1515,8 @@ async function pageDetail(slug) {
       ['Rating', ratingVal ? `★ ${ratingVal}` : '-'],
       ['Type', typeVal || '-'],
     ];
+    if (d.author) factsItems.push(['Author', d.author]);
+    if (d.source) factsItems.push(['Source', d.source.toUpperCase()]);
     const factsHtml = factsItems.map(([label, val]) =>
       `<div><dt>${label}</dt><dd>${esc(val)}</dd></div>`
     ).join('');

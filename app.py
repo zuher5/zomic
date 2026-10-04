@@ -19,6 +19,8 @@ from PIL import Image, features
 
 from komiku_web import KomikuWeb, retry_get, genre_name, normalize_genre
 from kiryuu_web import KiryuuWeb, _humanize_slug
+from sanka_web import SankaWeb
+from voratoon_web import VoratoonWeb
 
 log = logging.getLogger("zomic")
 
@@ -560,6 +562,17 @@ class KomikuAPI:
 api = KomikuAPI()
 web = KomikuWeb()
 kiryuu = KiryuuWeb()
+sanka = SankaWeb()
+voratoon = VoratoonWeb()
+
+_SANKA_SOURCES = ('softkomik', 'westmanga', 'komikstation')
+
+
+def _check_sanka_source(source):
+    source = (source or '').strip().lower()
+    if source not in _SANKA_SOURCES:
+        raise HTTPException(status_code=400, detail=f"source harus salah satu dari {_SANKA_SOURCES}")
+    return source
 
 
 def _en_item_genre(card):
@@ -624,6 +637,167 @@ def _merge_items(komiku_items, kiryuu_items):
         _en_item_genre(card)
         out.append(card)
     return out
+
+
+_SANKA_MAP = TTLCache(max_items=8192)
+
+
+def _sanka_all():
+    """Ambil listing terbaru dari semua upstream sanka sekaligus.
+
+    Setiap item diberi source='sanka' dan _sanka_source (nama upstream
+    asli). Slug→upstream-source disimpan di _SANKA_MAP supaya route
+    detail/chapter bisa resolve tanpa menebak. Kegagalan satu upstream
+    hanya di-log; upstream lain tetap mengisi (saling menutupi).
+    """
+    out = []
+    for src in _SANKA_SOURCES:
+        try:
+            data = sanka.latest(src, 1)
+            for it in (data or {}).get('items', []) or []:
+                it['source'] = 'sanka'
+                it['_sanka_source'] = src
+                out.append(it)
+                s = it.get('slug')
+                if s:
+                    _SANKA_MAP.set(s, src, ttl=21600)
+        except Exception as e:
+            log.warning("sanka.latest(%s) gagal: %s", src, e)
+    return out
+
+
+def _merge_sanka(items, sanka_items):
+    """Tambah item sanka ke hasil merge komiku+kiryuu tanpa duplikat.
+
+    Dedup dua lapis seperti _merge_items: slug persis, lalu judul
+    ternormalisasi — judul sama antar-sumber cukup satu kartu.
+    """
+    seen = {c.get('slug') for c in items if c.get('slug')}
+    titles = {_norm_title(c.get('title')) for c in items}
+    for it in sanka_items or []:
+        s = it.get('slug')
+        norm = _norm_title(it.get('title'))
+        if s and s in seen:
+            continue
+        if norm and norm in titles:
+            continue
+        if s:
+            seen.add(s)
+        if norm:
+            titles.add(norm)
+        items.append(it)
+    return items
+
+
+def _merge_voratoon(items, vora_items):
+    """Tambah item voratoon ke hasil listing tanpa duplikat.
+
+    Dedup dua lapis: slug persis dan judul ternormalisasi.
+    """
+    seen = {c.get('slug') for c in items if c.get('slug')}
+    titles = {_norm_title(c.get('title')) for c in items}
+    for it in vora_items or []:
+        s = it.get('slug')
+        norm = _norm_title(it.get('title'))
+        if s and s in seen:
+            continue
+        if norm and norm in titles:
+            continue
+        if s:
+            seen.add(s)
+        if norm:
+            titles.add(norm)
+        items.append(it)
+    return items
+
+
+_SANKA_GENRE_CACHE = TTLCache(max_items=4096)
+_SANKA_GENRE_FETCH_LIMIT = 25
+
+
+def _sanka_items_for_genre(slug):
+    """Item sanka yang cocok dengan genre, tanpa fetch detail berlebihan.
+
+    Listing sanka tidak membawa field genre, jadi genre tiap item di-
+    resolve lewat sanka.detail — di-cache 6 jam per item dan dibatasi
+    25 fetch pertama per pemanggilan supaya tidak menghantam rate limit
+    upstream (±30 req/menit). Item yang genre-nya tidak bisa disanggupi
+    dilewati, bukan digagalkan.
+    """
+    want = {(slug or '').lower()}
+    name = genre_name(slug) or (slug or '').replace('-', ' ')
+    want.add(name.lower())
+    for g in normalize_genre(name).split(', '):
+        if g:
+            want.add(g.lower())
+    want |= {w.replace('-', ' ') for w in list(want)}
+
+    out = []
+    fetched = 0
+    for it in _sanka_all():
+        s = it.get('slug')
+        genres = _SANKA_GENRE_CACHE.get(s) if s else None
+        if genres is None:
+            if fetched >= _SANKA_GENRE_FETCH_LIMIT:
+                continue
+            fetched += 1
+            src = it.get('_sanka_source')
+            genres = []
+            if src and s:
+                try:
+                    genres = sanka.detail(src, s).get('genres') or []
+                except Exception:
+                    genres = []
+                _SANKA_GENRE_CACHE.set(s, genres, ttl=21600)
+        labels = set()
+        for g in genres or []:
+            if isinstance(g, dict):
+                for k in ('slug', 'name', 'title'):
+                    v = g.get(k)
+                    if v:
+                        labels.add(str(v).lower())
+            else:
+                labels.add(str(g).lower())
+        flat = set(labels)
+        flat |= {l.replace('-', ' ') for l in labels}
+        if flat & want:
+            out.append(it)
+    return out
+
+
+def _sanka_detail_for(slug):
+    src = _SANKA_MAP.get(slug)
+    if not src:
+        return None
+    try:
+        d = sanka.detail(src, slug)
+        if d:
+            d['source'] = 'sanka'
+            return d
+    except Exception as e:
+        log.warning("sanka.detail(%s, %s) gagal: %s", src, slug, e)
+    return None
+
+
+def _sanka_chapter_for(slug, chapter):
+    src = _SANKA_MAP.get(slug)
+    if not src:
+        return None
+    try:
+        d = sanka.detail(src, slug)
+    except Exception as e:
+        log.warning("sanka.detail(%s, %s) utk chapter gagal: %s", src, slug, e)
+        return None
+    want = str(chapter)
+    for ch in (d or {}).get('chapters', []) or []:
+        m = re.search(r'(\d+(?:\.\d+)?)', str(ch.get('title', '')))
+        if m:
+            try:
+                if float(m.group(1)) == float(want):
+                    return sanka.chapter_images(src, slug, ch.get('slug', '')) or None
+            except (ValueError, TypeError):
+                continue
+    return None
 
 
 def _similar_from_kiryuu_genre(kiryuu, detail_data, slug, limit=10):
@@ -845,18 +1019,15 @@ async def _rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-def _parallel(first_fn, second_fn):
-    """Jalankan dua producer independen secara paralel; kembalikan (r1, r2).
+def _parallel(*fns):
+    """Jalankan producer independen secara paralel; kembalikan tuple hasil.
 
     Semantik error tidak berubah: exception dari salah satu sisi di-raise
-    kembali saat .result() dipanggil sesuai urutan submit, jadi sisi yang
-    me-raise di kode sequential tetap me-raise di sini. Tangkap exception
-    di dalam fn bila sisi itu memang menoleransi kegagalan (pola kiryuu).
+    kembali saat .result() dipanggil sesuai urutan submit.
     """
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f1 = ex.submit(first_fn)
-        f2 = ex.submit(second_fn)
-        return f1.result(), f2.result()
+    with ThreadPoolExecutor(max_workers=max(1, len(fns))) as ex:
+        futures = [ex.submit(fn) for fn in fns]
+        return tuple(f.result() for f in futures)
 
 
 def cached(key, producer, ttl=3600, stale_ttl=21600):
@@ -962,10 +1133,23 @@ def latest(page: int = Query(1, ge=1), response: Response = None):
                 log.warning("kiryuu.home(latest) gagal: %s", e)
                 return []
 
-        komiku_data, kiryuu_data = _parallel(_komiku, _kiryuu)
-        if komiku_data is None and not kiryuu_data:
-            raise requests.RequestException("latest: kedua upstream gagal")
-        return _merge_items(komiku_data or [], kiryuu_data or [])
+        def _voratoon():
+            try:
+                return voratoon.latest(page)
+            except Exception as e:
+                log.warning("voratoon.latest(page=%d) gagal: %s", page, e)
+                return []
+
+        komiku_data, kiryuu_data, vora_data = _parallel(_komiku, _kiryuu, _voratoon)
+        if komiku_data is None and not kiryuu_data and not vora_data:
+            sanka_items = _sanka_all()
+            if not sanka_items:
+                raise requests.RequestException("latest: semua upstream gagal")
+            return sanka_items
+        items = _merge_items(komiku_data or [], kiryuu_data or [])
+        items = _merge_voratoon(items, vora_data or [])
+        items = _merge_sanka(items, _sanka_all())
+        return items
 
     data = cached(f"latest_{page}", _latest, ttl=1800)
     _edge_cache(response, s_maxage=300, swr=2700)
@@ -1011,12 +1195,30 @@ def search(q: str = Query(..., min_length=1, max_length=100), page: int = Query(
                 log.warning("kiryuu.search(%s) gagal: %s", q, e)
                 return []
 
-        komiku_data, kiryuu_items = _parallel(_komiku, _kiryuu)
-        if komiku_data is None and not kiryuu_items:
-            raise requests.RequestException("search: kedua upstream gagal")
+        def _voratoon():
+            try:
+                res = voratoon.search(q, page)
+                return res.get('items', [])
+            except Exception as e:
+                log.warning("voratoon.search(%s) gagal: %s", q, e)
+                return []
+
+        komiku_data, kiryuu_items, vora_items = _parallel(_komiku, _kiryuu, _voratoon)
+        if komiku_data is None and not kiryuu_items and not vora_items:
+            # komiku+kiryuu+voratoon gagal: sanka tetap bisa mengisi hasil pencarian
+            sanka_hits = [it for it in _sanka_all()
+                          if q.lower() in str(it.get('title', '')).lower()]
+            if not sanka_hits:
+                raise requests.RequestException("search: semua upstream gagal")
+            return {'items': sanka_hits, 'page': page, 'per_page': 10,
+                    'query': q, 'has_next': False}
         komiku_data = komiku_data or {'items': [], 'page': page, 'per_page': 10,
                                       'query': q, 'has_next': False}
         komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items or [])
+        komiku_data['items'] = _merge_voratoon(komiku_data['items'], vora_items or [])
+        sanka_hits = [it for it in _sanka_all()
+                      if q.lower() in str(it.get('title', '')).lower()]
+        komiku_data['items'] = _merge_sanka(komiku_data['items'], sanka_hits)
         return komiku_data
 
     data = cached(f"search_{q.lower()}_{page}", _search, ttl=900)
@@ -1078,10 +1280,17 @@ def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Respon
                 log.warning("kiryuu.by_genre(%s) gagal: %s", slug, e)
                 return {}
 
-        komiku_data, kiryuu_data = _parallel(_komiku, _kiryuu)
+        def _voratoon():
+            try:
+                return voratoon.by_genre(slug, page).get('items', [])
+            except Exception as e:
+                log.warning("voratoon.by_genre(%s) gagal: %s", slug, e)
+                return []
+
+        komiku_data, kiryuu_data, vora_items = _parallel(_komiku, _kiryuu, _voratoon)
         kiryuu_items = (kiryuu_data or {}).get('items', [])
-        if komiku_data is None and not kiryuu_items:
-            raise requests.RequestException("genre: kedua upstream gagal")
+        if komiku_data is None and not kiryuu_items and not vora_items:
+            raise requests.RequestException("genre: semua upstream gagal")
         komiku_data = komiku_data or {'items': [], 'page': page, 'per_page': 10,
                                       'genre': slug, 'has_next': False}
         # Merge pagination: gunakan max total_pages dari kedua sumber
@@ -1090,6 +1299,8 @@ def genre_detail(slug: str, page: int = Query(1, ge=1, le=100), response: Respon
             komiku_data['total_pages'] = kiryuu_data_max
             komiku_data['has_next'] = kiryuu_data.get('has_next', False)
         komiku_data['items'] = _merge_items(komiku_data['items'], kiryuu_items)
+        komiku_data['items'] = _merge_voratoon(komiku_data['items'], vora_items)
+        komiku_data['items'] = _merge_sanka(komiku_data['items'], _sanka_items_for_genre(slug))
         return komiku_data
 
     data = cached(f"genre_{slug}_{page}", _genre, ttl=1800)
@@ -1128,9 +1339,17 @@ def popular(response: Response = None):
                 log.warning("kiryuu.popular() gagal: %s", e)
                 return []
 
-        komiku_groups, kiryuu_pop = _parallel(_komiku, _kiryuu)
-        if komiku_groups is None and not kiryuu_pop:
-            raise requests.RequestException("popular: kedua upstream gagal")
+        def _voratoon():
+            try:
+                return voratoon.popular()
+            except Exception as e:
+                log.warning("voratoon.popular() gagal: %s", e)
+                return []
+
+        komiku_groups, kiryuu_pop, vora_pop = _parallel(_komiku, _kiryuu, _voratoon)
+        sanka_pop = _sanka_all()
+        if komiku_groups is None and not kiryuu_pop and not sanka_pop and not vora_pop:
+            raise requests.RequestException("popular: semua upstream gagal")
         out = []
         komiku_map = {g['key']: g for g in (komiku_groups or [])}
         for t in ('manga', 'manhwa', 'manhua'):
@@ -1139,11 +1358,17 @@ def popular(response: Response = None):
             for c in matching:
                 c['source'] = 'kiryuu'
                 _en_item_genre(c)
+            vora_matching = [c for c in vora_pop
+                             if str(c.get('type') or '').lower() == t]
+            sanka_matching = [c for c in sanka_pop
+                              if str(c.get('type') or '').lower() == t]
             items = []
             if k_group and k_group.get('items'):
-                items = _merge_items(k_group['items'], matching) if matching else k_group['items']
+                items = _merge_items(k_group['items'], matching) if matching else list(k_group['items'])
             elif matching:
                 items = matching
+            items = _merge_voratoon(items, vora_matching)
+            items = _merge_sanka(items, sanka_matching)
             if items:
                 out.append({'key': t, 'title': f"{t.title()} Populer", 'items': items})
         return out
@@ -1172,8 +1397,11 @@ def recommended(response: Response = None):
 
         komiku_items, kiryuu_items = _parallel(_komiku, _kiryuu)
         if komiku_items is None and not kiryuu_items:
-            raise requests.RequestException("recommended: kedua upstream gagal")
-        return _merge_items(komiku_items or [], kiryuu_items or [])
+            sanka_items = _sanka_all()
+            if not sanka_items:
+                raise requests.RequestException("recommended: ketiga upstream gagal")
+            return sanka_items[:20]
+        return _merge_sanka(_merge_items(komiku_items or [], kiryuu_items or []), _sanka_all()[:20])
 
     data = cached("recommended", _recommended, ttl=3600)
     _edge_cache(response, s_maxage=600, swr=3600)
@@ -1191,8 +1419,96 @@ def colored(response: Response = None):
     _edge_cache(response, s_maxage=600, swr=1800)
     return data
 
+@app.get("/api/sanka/latest")
+def sanka_latest(source: str = Query('softkomik'), page: int = Query(1, ge=1), response: Response = None):
+    source = _check_sanka_source(source)
+
+    def _latest():
+        data = sanka.latest(source, page)
+        for it in (data or {}).get('items', []) or []:
+            s = it.get('slug')
+            if s:
+                _SANKA_MAP.set(s, source, ttl=21600)
+        return data
+
+    data = cached(f"sanka_latest_{source}_{page}", _latest, ttl=1800)
+    _edge_cache(response, s_maxage=300, swr=2700)
+    return data
+
+
+@app.get("/api/sanka/detail/{source}/{slug}")
+def sanka_detail(source: str, slug: str, response: Response = None):
+    source = _check_sanka_source(source)
+
+    def _detail():
+        try:
+            return sanka.detail(source, slug)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="komik tidak ditemukan")
+
+    data = cached(f"sanka_detail_{source}_{slug}", _detail, ttl=1800)
+    _edge_cache(response, s_maxage=600, swr=1800)
+    return data
+
+
+@app.get("/api/sanka/chapter/{source}/{comic_slug}/{chapter_slug:path}")
+def sanka_chapter(source: str, comic_slug: str, chapter_slug: str, response: Response = None):
+    source = _check_sanka_source(source)
+
+    def _chapter():
+        return {'images': sanka.chapter_images(source, comic_slug, chapter_slug)}
+
+    data = cached(f"sanka_chap_{source}_{comic_slug}_{chapter_slug}", _chapter, ttl=3600)
+    _edge_cache(response, s_maxage=900, swr=3600, browser=300)
+    return data
+
+
+@app.get("/api/voratoon/latest")
+def voratoon_latest(page: int = Query(1, ge=1), response: Response = None):
+    def _latest():
+        return {'items': voratoon.latest(page), 'page': page}
+    data = cached(f"vt_latest_{page}", _latest, ttl=1800)
+    _edge_cache(response, s_maxage=300, swr=2700)
+    return data
+
+
+@app.get("/api/voratoon/detail/{slug}")
+def voratoon_detail_route(slug: str, response: Response = None):
+    def _detail():
+        d = voratoon.detail(slug)
+        if not d:
+            raise HTTPException(status_code=404, detail="komik tidak ditemukan")
+        return d
+    data = cached(f"vt_detail_{slug}", _detail, ttl=1800)
+    _edge_cache(response, s_maxage=600, swr=1800)
+    return data
+
+
+@app.get("/api/voratoon/chapter/{slug}/{chapter}")
+def voratoon_chapter_route(slug: str, chapter: str, response: Response = None):
+    def _chapter():
+        imgs = voratoon.chapter_images(slug, chapter)
+        if not imgs:
+            raise HTTPException(status_code=404, detail="chapter tidak ditemukan")
+        return {'images': imgs}
+    data = cached(f"vt_chap_{slug}_{chapter}", _chapter, ttl=3600)
+    _edge_cache(response, s_maxage=900, swr=3600, browser=300)
+    return data
+
+
 @app.get("/api/detail/{slug}")
 def detail(slug: str, response: Response = None):
+    if slug.startswith('vt-'):
+        def _vt_detail():
+            d = voratoon.detail(slug)
+            if not d:
+                raise HTTPException(status_code=404, detail="komik tidak ditemukan")
+            return d
+
+        data = cached(f"detail_{slug}", _vt_detail, ttl=1800)
+        _edge_cache(response, s_maxage=600, swr=1800)
+        return data
+
     def _detail():
         def _komiku():
             try:
@@ -1243,8 +1559,12 @@ def detail(slug: str, response: Response = None):
             if not kiryuu_d.get('similar'):
                 kiryuu_d['similar'] = _similar_from_kiryuu_genre(kiryuu, kiryuu_d, slug)
             return kiryuu_d
-        # Keduanya tanpa data: komiku 404 = otoritatif tidak ada (404);
-        # selain itu upstream error (502 via cached(), dapat stale bila ada).
+        # Keduanya tanpa data: coba sanka via peta slug→upstream dulu;
+        # baru komiku 404 = otoritatif tidak ada (404); selain itu
+        # upstream error (502 via cached(), dapat stale bila ada).
+        sanka_d = _sanka_detail_for(slug)
+        if sanka_d:
+            return sanka_d
         if komiku_err == 404:
             raise HTTPException(status_code=404, detail="komik tidak ditemukan")
         raise requests.RequestException(
@@ -1257,6 +1577,17 @@ def detail(slug: str, response: Response = None):
 @app.get("/api/chapter/{slug}/{chapter}", response_model=List[str])
 def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), response: Response = None):
     key = f"chap_{slug}_{chapter}"
+
+    if slug.startswith('vt-'):
+        def _vt_chapter():
+            imgs = voratoon.chapter_images(slug, chapter)
+            if not imgs:
+                raise HTTPException(status_code=404, detail="chapter tidak ditemukan")
+            return imgs
+
+        data = cached(key, _vt_chapter, ttl=3600)
+        _edge_cache(response, s_maxage=900, swr=3600, browser=300)
+        return data
 
     def _chapter():
         # kiryuu DIUTAMAKAN (paling stabil dari cloud). Slug mentah dicoba
@@ -1293,6 +1624,10 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
         images = kiryuu_images or komiku_images
         if images:
             return images
+        # Fallback terakhir: sanka via peta slug→upstream (hasil listing).
+        sanka_images = _sanka_chapter_for(slug, chapter)
+        if sanka_images:
+            return sanka_images
         # Kosong dari kedua sisi: komiku 404 = otoritatif tidak ada (404);
         # selain itu upstream error (RequestException agar cached() melayani
         # stale bila ada, atau 502 — jangan samarkan jadi 404).
@@ -1308,7 +1643,7 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
 # --- IMAGE PROXY (cover, optimized) ---
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
 # open proxy / vektor SSRF (bisa dipakai menembak jaringan internal).
-IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id')
+IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'westmanga.blog', 'komik.im', 'klikcdn.com', 'softdevices.my.id', 'voratoon.com', 'voratoon.id')
 # CDN gambar bisa berganti di luar kontrol kita (dulu image*.komiku.to,
 # sekarang cdnkuma.my.id). Tambahan suffix via env tanpa redeploy kode:
 # IMG_HOST_SUFFIXES_EXTRA="cdn-baru.example.com,cdn-lain.example.net"
@@ -1508,6 +1843,8 @@ MAX_IMG_REDIRECTS = 3
 def _img_referer(url):
     """Referer per-request berdasarkan host sumber (bukan mutasi session bersama)."""
     low = url.lower()
+    if 'voratoon.com' in low or 'voratoon.id' in low:
+        return 'https://v5.voratoon.com/'
     return 'https://v7.kiryuu.to/' if ('kiryuu.to' in low or 'yuucdn.com' in low) else 'https://komiku.org/'
 
 
