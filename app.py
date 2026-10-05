@@ -1911,7 +1911,12 @@ def spa_fallback(full_path: str):
 def _serve_index():
     try:
         with open(INDEX_PATH, encoding="utf-8") as fh:
-            return HTMLResponse(fh.read())
+            body = fh.read()
+        html = HTMLResponse(body)
+        html.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        html.headers["Pragma"] = "no-cache"
+        html.headers["Expires"] = "0"
+        return html
     except OSError:
         raise HTTPException(status_code=500, detail="frontend tidak ditemukan: web/index.html")
 
