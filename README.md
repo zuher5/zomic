@@ -28,6 +28,8 @@ web/index.html   Frontend SPA (hash router, tanpa build)
 run.sh           Auto-setup venv + deps + verifikasi + jalankan
 requirements.txt Dependensi Python
 tests/           Unit test (unittest)
+AGENTS.md        Panduan singkat untuk agent coding
+PRD.md           Ringkasan product requirements
 ```
 
 ## Cara Jalankan
