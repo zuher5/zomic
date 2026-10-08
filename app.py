@@ -1420,7 +1420,7 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
 # --- IMAGE PROXY (cover, optimized) ---
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
 # open proxy / vektor SSRF (bisa dipakai menembak jaringan internal).
-IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'westmanga.blog', 'komik.im', 'klikcdn.com', 'softdevices.my.id', 'voratoon.com', 'voratoon.id', 'blogger.googleusercontent.com')
+IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'westmanga.blog', 'komik.im', 'klikcdn.com', 'softdevices.my.id', 'voratoon.com', 'voratoon.id', 'blogger.googleusercontent.com', 'cdn.jsdelivr.net')
 # CDN gambar bisa berganti di luar kontrol kita (dulu image*.komiku.to,
 # sekarang cdnkuma.my.id). Tambahan suffix via env tanpa redeploy kode:
 # IMG_HOST_SUFFIXES_EXTRA="cdn-baru.example.com,cdn-lain.example.net"
