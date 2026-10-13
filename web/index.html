@@ -660,14 +660,16 @@ body[data-view="reader"] .wrap{max-width:none;padding-inline:0}
    agar lazy image tidak dianggap masuk viewport sekaligus; tinggi asli
    kembali setelah .done sehingga rasio halaman komik dipertahankan. */
 .pages .pg{display:block;position:relative;width:100%;background:#0e0e0e;min-height:60svh;overflow:hidden;content-visibility:auto;contain-intrinsic-size:auto 60svh}
-.pages .pg:not(.done)::before{content:attr(data-pg-label);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.14);font-size:var(--t-meta);font-weight:500;letter-spacing:.02em;pointer-events:none}
+.pages .pg:not(.done):not(.failed)::before{content:attr(data-pg-label);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.14);font-size:var(--t-meta);font-weight:500;letter-spacing:.02em;pointer-events:none}
 .pages .pg.loading:not(.done)::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.06) 50%,transparent 100%);transform:translate3d(-100%,0,0);will-change:transform;backface-visibility:hidden;animation:shimmer 1.3s cubic-bezier(.4,0,.2,1) infinite;pointer-events:none}
 @keyframes shimmer{to{transform:translate3d(100%,0,0)}}
 .pages .pg.done{min-height:0;background:#0e0e0e}
 .pages .pg.done::before{display:none}
+.pages .pg.failed{display:flex;align-items:center;justify-content:center}
 .pages img{display:block;width:100%;height:auto;opacity:0;transition:opacity .25s var(--ease)}
 .pages img.done{opacity:1}
-.pages .pfail{padding:var(--sp-5);text-align:center;color:var(--muted);font-size:var(--t-meta)}
+.pages .pfail{padding:var(--sp-5);text-align:center;color:var(--muted);font-size:var(--t-meta);display:flex;flex-direction:column;align-items:center;gap:var(--sp-3)}
+.pages .pfail p{margin:0;color:var(--muted)}
 @media (min-width:820px){
   .pages{max-width:780px;margin-inline:auto}
 }
@@ -1658,8 +1660,7 @@ async function pageReader(slug, ch) {
       </div>
 
       <div class="pages" id="pages">${pages.map((u, n) =>
-        `<div class="pg" data-pg="${n}" data-pg-label="Halaman ${n + 1}"><img data-src="${IMG(u)}" data-pg="${n}" alt="Page ${n + 1}" ${n < 3 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
-          onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.dataset.src;}else{this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Page ${n + 1} failed to load'}))}"></div>`).join('')}
+        `<div class="pg" data-pg="${n}" data-pg-label="Halaman ${n + 1}"><img data-src="${esc(u)}" data-proxy="${IMG(u)}" data-pg="${n}" alt="Halaman ${n + 1}" referrerpolicy="no-referrer" decoding="async"></div>`).join('')}
       </div>
 
       <div class="rend">
@@ -1817,52 +1818,35 @@ function mountReaderImages() {
   if (!pairs.length) return;
   const imgs = pairs.map(p => p.img);
   const slotOf = img => pairs.find(p => p.img === img)?.slot || img.closest('.pg');
-  // Decode-then-show: gambar tetap opacity 0 (placeholder .pg ber-den) selama
-  // byte mengalir, baru tampil setelah browser selesai decode frame PENUH.
-  // JPEG dari CDN bersifat PROGRESIF (SOF2, ~3 scan) — kalau ditampilkan saat
-  // decode belum selesai, Chrome merender scan kasar dulu lalu memperbaikinya →
-  // terlihat "thumbnail yang membesar". Karena itu TIDAK ADA fallback yang
-  // menampilkan gambar tanpa decode; kalau decode() reject, dicoba ulang
-  // (max 3x) dengan jeda, baru tampil paksa setelah img.complete.
+
   const show = img => {
     img.classList.add('done');
-    // Placeholder ikut done → shimmer berhenti & min-height dilepas, tinggi
-    // kembali mengikuti rasio asli halaman komik.
     const slot = slotOf(img);
     if (slot) {
-      slot.classList.remove('loading');
+      slot.classList.remove('loading', 'failed');
       slot.classList.add('done');
+      slot.querySelector('.pfail')?.remove();
     }
     _readerHeightStale = true;
   };
+
   const showWhenReady = img => {
     if (!img || img.dataset.shown) return;
     img.dataset.shown = '1';
-    // Double rAF: pastikan frame ter-commit ke layar SEBELUM opacity naik,
-    // supaya tidak pernah ada frame dengan gambar setengah jadi.
-    const reveal = () => requestAnimationFrame(() => requestAnimationFrame(() => show(img)));
-    let tries = 0;
-    const attempt = () => {
-      if (!img.complete) { img.addEventListener('load', attempt, { once: true }); return; }
-      let p;
-      try { p = img.decode(); }
-      catch { reveal(); return; }
-      if (p && p.then) {
-        p.then(reveal, () => {
-          if (++tries < 3) setTimeout(attempt, 80); // decode belum siap, ulangi
-          else reveal();                            // sudah complete, tampil
-        });
-      } else reveal();
-    };
-    attempt();
+    const reveal = () => requestAnimationFrame(() => show(img));
+    if (img.decode) {
+      img.decode().then(reveal).catch(reveal);
+    } else {
+      reveal();
+    }
   };
-  // Antrean bertahap anti-spike: maksimal 2 unduhan paralel + jeda antar
-  // start, prioritas = urutan halaman. Menggantikan pola lama (3 eager
-  // sekaligus + warm 3 Image paralel) yang menghantam sinyal sekaligus.
-  const MAX_PARALLEL = 2, START_GAP = 120;
+
+  // Antrean Direct CDN + fallback proxy: 3 koneksi concurrent untuk kecepatan optimal.
+  const MAX_PARALLEL = 3, START_GAP = 50;
   const inFlight = new Set();
   const queue = [];
   let lastStart = 0;
+
   const pump = () => {
     while (inFlight.size < MAX_PARALLEL && queue.length) {
       const img = queue.shift();
@@ -1870,56 +1854,102 @@ function mountReaderImages() {
       inFlight.add(img);
       const wait = Math.max(0, START_GAP - (performance.now() - lastStart));
       lastStart = performance.now() + wait;
-      setTimeout(() => load(img, img.dataset.src), wait);
+      setTimeout(() => load(img), wait);
     }
   };
+
   const settle = img => { if (inFlight.delete(img)) pump(); };
+
   const enqueue = img => {
     if (!img || img.dataset.loaded || img.dataset.queued) return;
     img.dataset.queued = '1';
-    // Sisip berdasar nomor halaman agar tampil tetap berurutan.
     const pg = Number(img.dataset.pg) || 0;
     let at = queue.findIndex(q => (Number(q.dataset.pg) || 0) > pg);
     if (at < 0) at = queue.length;
     queue.splice(at, 0, img);
     pump();
   };
-  const load = (img, src) => {
+
+  const onImgFail = (img, slot) => {
+    if (slot) {
+      slot.classList.remove('loading');
+      slot.classList.add('failed');
+      let pfail = slot.querySelector('.pfail');
+      if (!pfail) {
+        pfail = document.createElement('div');
+        pfail.className = 'pfail';
+        slot.appendChild(pfail);
+      }
+      const pg = (Number(img.dataset.pg) || 0) + 1;
+      pfail.innerHTML = `<p>Halaman ${pg} gagal dimuat</p><button class="btn sm" type="button">Coba Lagi</button>`;
+      pfail.querySelector('button')?.addEventListener('click', e => {
+        e.stopPropagation();
+        pfail.remove();
+        slot.classList.remove('failed');
+        delete img.dataset.loaded;
+        delete img.dataset.queued;
+        delete img.dataset.shown;
+        delete img.dataset.proxyTried;
+        enqueue(img);
+      });
+    }
+    settle(img);
+  };
+
+  const load = img => {
     if (!img || img.dataset.loaded) { settle(img); return; }
     img.dataset.loaded = '1';
-    // Reference wrapper diambil SEBELUM request: saat gambar gagal total, <img>
-    // dilepas dari DOM (onerror inline) sehingga closest('.pg') jadi null.
     const slot = slotOf(img);
+    slot?.classList.remove('failed');
     slot?.classList.add('loading');
-    img.addEventListener('load', () => { showWhenReady(img); settle(img); }, { once: true });
-    // Gagal → placeholder jangan menggantung ber-den 60svh; lepaskan juga.
-    img.addEventListener('error', () => {
-      if (slot) {
-        slot.classList.remove('loading');
-        slot.classList.add('done');
-      }
+    slot?.querySelector('.pfail')?.remove();
+
+    const handleSuccess = () => {
+      showWhenReady(img);
       settle(img);
-    }, { once: true });
-    img.src = src;
-    // Gambar cache bisa selesai sebelum listener terpasang.
-    if (img.complete && img.naturalWidth) showWhenReady(img);
-    setTimeout(() => settle(img), 15000); // pengaman slot tak macet
+    };
+
+    const handleError = () => {
+      // Tingkat 1: Direct CDN gagal -> Coba fallback lewat proxy lokal (/api/img)
+      if (!img.dataset.proxyTried && img.dataset.proxy) {
+        img.dataset.proxyTried = '1';
+        img.removeAttribute('referrerpolicy');
+        img.src = img.dataset.proxy;
+        return;
+      }
+      // Tingkat 2: Proxy juga gagal -> Tampilkan UI Coba Lagi
+      onImgFail(img, slot);
+    };
+
+    img.onload = handleSuccess;
+    img.onerror = handleError;
+
+    // Direct CDN dulu (cepat, tanpa beban worker server)
+    img.src = img.dataset.src;
+    if (img.complete && img.naturalWidth) handleSuccess();
+    setTimeout(() => {
+      if (!img.dataset.shown && inFlight.has(img)) settle(img);
+    }, 15000);
   };
-  // Halaman pertama langsung antre terdepan (LCP cepat via pump instan).
-  enqueue(imgs[0]);
-  // Observe WRAPPER .pg, bukan <img>: sebelum load, <img> tinggi-nya 0
-  // (min-height ada di .pg) dan IO pada elemen nol-tinggi tidak andal.
+
+  // 3 Halaman pertama langsung antre terdepan (LCP cepat)
+  if (imgs[0]) enqueue(imgs[0]);
+  if (imgs[1]) enqueue(imgs[1]);
+  if (imgs[2]) enqueue(imgs[2]);
+
+  // Observer untuk halaman-halaman berikutnya dengan buffer 2000px (~2.5 layar)
   readerObserver = new IntersectionObserver(entries => {
     entries.forEach(en => {
       const pair = pairs.find(p => p.slot === en.target);
-      if (!pair || !en.isIntersecting || pair.img.dataset.loaded) return;
+      if (!pair || !en.isIntersecting) return;
       enqueue(pair.img);
-      // Lookahead: cukup 1 halaman berikut, ikut antre (tak langsung tembak).
       const n = Number(pair.img.dataset.pg) || 0;
       if (imgs[n + 1]) enqueue(imgs[n + 1]);
+      if (imgs[n + 2]) enqueue(imgs[n + 2]);
     });
-  }, { rootMargin: '800px 0px' });
-  pairs.forEach((p, i) => { if (p.img !== imgs[0]) readerObserver.observe(p.slot); });
+  }, { rootMargin: '2000px 0px' });
+
+  pairs.forEach((p, i) => { if (i > 2) readerObserver.observe(p.slot); });
 }
 
 /* Autoscroll. */

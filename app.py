@@ -787,7 +787,7 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 # lewat /api/img. frame-ancestors 'none' + X-Frame-Options menutup clickjacking.
 _SECURITY_HEADERS = {
     'Content-Security-Policy': (
-        "default-src 'self'; img-src 'self' data:; font-src 'self'; "
+        "default-src 'self'; img-src 'self' data: https:; font-src 'self'; "
         "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     ),
@@ -1622,7 +1622,9 @@ def _img_referer(url):
     low = url.lower()
     if 'voratoon.com' in low or 'voratoon.id' in low:
         return 'https://v5.voratoon.com/'
-    return 'https://v7.kiryuu.to/' if ('kiryuu.to' in low or 'yuucdn.com' in low) else 'https://komiku.org/'
+    if 'kiryuu.to' in low or 'yuucdn.com' in low or 'uqni.net' in low:
+        return 'https://v7.kiryuu.to/'
+    return 'https://komiku.org/'
 
 
 def _img_open(session, url):
@@ -1635,7 +1637,7 @@ def _img_open(session, url):
     """
     current = url
     for _ in range(MAX_IMG_REDIRECTS + 1):
-        req = retry_get(session, current, timeout=(5, 15), stream=True,
+        req = retry_get(session, current, timeout=(4, 10), stream=True,
                         allow_redirects=False, headers={'Referer': _img_referer(current)})
         if req is None:
             return None
@@ -1924,10 +1926,9 @@ def _serve_index():
 # --- RUN ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    # 2 worker: endpoint sync + upstream lambat membuat 1 worker mudah macet
-    # antrean. Naikkan ke 4 bila RAM longgar (WORKERS=4).
-    workers = int(os.environ.get("WORKERS", 2))
-    # workers>1 wajib import string (bukan app object) — objek + workers tidak
-    # didukung uvicorn dan hanya print warning tanpa menjalankan multiple worker.
+    # Android/Termux default 1 worker (hindari orphan multiprocessing fork);
+    # selain itu default 2 worker. Dapat di-override via env WORKERS.
+    is_android = bool(os.environ.get("TERMUX_VERSION") or os.path.exists("/data/data/com.termux"))
+    workers = int(os.environ.get("WORKERS", 1 if is_android else 2))
     target = "app:app" if workers and workers != 1 else app
     uvicorn.run(target, host="0.0.0.0", port=port, workers=workers)

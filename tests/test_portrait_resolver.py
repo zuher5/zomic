@@ -250,9 +250,10 @@ class ReaderAndFrontendContractTest(unittest.TestCase):
         # Cover selalu dipotong ke portrait via object-fit:cover (CSS default),
         # tanpa fallback contain untuk landscape.
         self.assertNotIn('function fitCover', html)
-        # Reader memakai source asli tanpa resize/format; versi buffering
-        # menaruh URL di data-src (dimuat penuh saat halaman mendekati viewport).
-        self.assertIn('data-src="${IMG(u)}"', html)
+        # Reader memakai direct upstream CDN dengan fallback proxy lokal;
+        # versi buffering menaruh URL CDN di data-src dan proxy di data-proxy.
+        self.assertIn('data-src="${esc(u)}"', html)
+        self.assertIn('data-proxy="${IMG(u)}"', html)
 
     def test_mobile_detail_header_centered_body_left(self):
         # Cover detail sudah center via margin:0 auto; header teks (judul/meta/
