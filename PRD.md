@@ -45,11 +45,13 @@
 
 - `/api/latest`, `/api/catalog`, `/api/search`, `/api/popular`, `/api/recommended`, `/api/detail/{slug}`, `/api/chapter/{slug}/{ch}`.
 - `/api/img?url=` memproxy gambar hanya dari host allowlist.
-- Reader halaman chapter memuat daftar gambar dari API.
+- Reader halaman chapter memuat gambar via hybrid direct CDN loader (`referrerpolicy="no-referrer"`) dengan fallback otomatis ke proxy `/api/img`.
+- Reader menonaktifkan native `loading="lazy"` agar pengunduhan dikontrol penuh oleh antrean JS dan tidak deadlock di kontainer `content-visibility: auto`.
 
 ### Non-Functional
 
-- `WORKERS=1` default untuk Termux.
+- `WORKERS=1` default untuk Termux/Android (mencegah orphan process saat multiprocess fork).
+- CSP `img-src` mengizinkan `'self' data: https:` agar koneksi direct CDN tidak ditolak browser.
 - `cached()` dengan stale cache saat upstream gagal.
 - Test harus mock semua HTTP; tidak boleh memanggil network luar.
 - Vercel paused: status Vercel failure/blocked tidak dianggap bug kode.
