@@ -660,9 +660,11 @@ body[data-view="reader"] .wrap{max-width:none;padding-inline:0}
    agar lazy image tidak dianggap masuk viewport sekaligus; tinggi asli
    kembali setelah .done sehingga rasio halaman komik dipertahankan. */
 .pages .pg{display:block;position:relative;width:100%;background:#0e0e0e;min-height:60svh;overflow:hidden;content-visibility:auto;contain-intrinsic-size:auto 60svh}
-.pages .pg:not(.done)::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.05) 50%,transparent);transform:translateX(-100%);animation:shimmer 1.4s linear infinite;pointer-events:none}
-@keyframes shimmer{to{transform:translateX(100%)}}
+.pages .pg:not(.done)::before{content:attr(data-pg-label);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.14);font-size:var(--t-meta);font-weight:500;letter-spacing:.02em;pointer-events:none}
+.pages .pg.loading:not(.done)::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.06) 50%,transparent 100%);transform:translate3d(-100%,0,0);will-change:transform;backface-visibility:hidden;animation:shimmer 1.3s cubic-bezier(.4,0,.2,1) infinite;pointer-events:none}
+@keyframes shimmer{to{transform:translate3d(100%,0,0)}}
 .pages .pg.done{min-height:0;background:#0e0e0e}
+.pages .pg.done::before{display:none}
 .pages img{display:block;width:100%;height:auto;opacity:0;transition:opacity .25s var(--ease)}
 .pages img.done{opacity:1}
 .pages .pfail{padding:var(--sp-5);text-align:center;color:var(--muted);font-size:var(--t-meta)}
@@ -1656,7 +1658,7 @@ async function pageReader(slug, ch) {
       </div>
 
       <div class="pages" id="pages">${pages.map((u, n) =>
-        `<div class="pg" data-pg="${n}"><img data-src="${IMG(u)}" data-pg="${n}" alt="Page ${n + 1}" ${n < 3 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
+        `<div class="pg" data-pg="${n}" data-pg-label="Halaman ${n + 1}"><img data-src="${IMG(u)}" data-pg="${n}" alt="Page ${n + 1}" ${n < 3 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"
           onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.dataset.src;}else{this.replaceWith(Object.assign(document.createElement('div'),{className:'pfail',textContent:'Page ${n + 1} failed to load'}))}"></div>`).join('')}
       </div>
 
@@ -1826,7 +1828,11 @@ function mountReaderImages() {
     img.classList.add('done');
     // Placeholder ikut done → shimmer berhenti & min-height dilepas, tinggi
     // kembali mengikuti rasio asli halaman komik.
-    slotOf(img)?.classList.add('done');
+    const slot = slotOf(img);
+    if (slot) {
+      slot.classList.remove('loading');
+      slot.classList.add('done');
+    }
     _readerHeightStale = true;
   };
   const showWhenReady = img => {
@@ -1884,9 +1890,16 @@ function mountReaderImages() {
     // Reference wrapper diambil SEBELUM request: saat gambar gagal total, <img>
     // dilepas dari DOM (onerror inline) sehingga closest('.pg') jadi null.
     const slot = slotOf(img);
+    slot?.classList.add('loading');
     img.addEventListener('load', () => { showWhenReady(img); settle(img); }, { once: true });
     // Gagal → placeholder jangan menggantung ber-den 60svh; lepaskan juga.
-    img.addEventListener('error', () => { slot?.classList.add('done'); settle(img); }, { once: true });
+    img.addEventListener('error', () => {
+      if (slot) {
+        slot.classList.remove('loading');
+        slot.classList.add('done');
+      }
+      settle(img);
+    }, { once: true });
     img.src = src;
     // Gambar cache bisa selesai sebelum listener terpasang.
     if (img.complete && img.naturalWidth) showWhenReady(img);
