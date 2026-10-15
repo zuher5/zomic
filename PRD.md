@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-**Zomic** adalah web reader komik/manga/manhwa/manhua yang mengagregasi katalog dari `komiku.org`, `kiryuu.to`, dan `v5.voratoon.com`. Backend memakai **FastAPI**; frontend adalah **SPA tanpa build** yang dilayani dari `web/index.html`.
+**Zomic** adalah web reader komik/manga/manhwa/manhua yang mengagregasi katalog dari `komiku.org`, `kiryuu.to`, `v5.voratoon.com`, dan Shinigami-Api. Backend memakai **FastAPI**; frontend adalah **SPA tanpa build** yang dilayani dari `web/index.html`.
 
 ## 2. Goals
 
@@ -26,6 +26,8 @@
   - `komiku_web.py`: HTML scraping katalog & search.
   - `kiryuu_web.py`: HTML scraping katalog/chapter.
   - `voratoon_web.py`: native client v5.voratoon.com.
+  - `shinigami_web.py`: client REST Shinigami-Api (service Node terpisah,
+    namespace slug `shn-`, chapter diakses via UUID yang di-resolve dari nomor).
 - **Frontend**: `web/index.html` — hash router, localStorage untuk favorit/history/progress.
 - **Deploy**:
   - **FastAPI Cloud**: production server persisten.
@@ -61,6 +63,7 @@
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8000` | Port server local. |
+| `SHINIGAMI_API_URL` | `http://localhost:3001/api` | Base URL service Shinigami-Api; sumber `shn-*` dilewati bila tak terjangkau |
 | `WORKERS` | `1` (cloud via `fastapi run`) | Jumlah worker uvicorn. |
 | `IMAGE_CACHE_TTL` | 30 hari | Masa simpan cache gambar. |
 | `IMG_HOST_SUFFIXES_EXTRA` | kosong | Host CDN tambahan untuk image proxy. |

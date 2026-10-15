@@ -21,7 +21,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = []
-py-modules = ["app", "komiku_web", "kiryuu_web"]
+py-modules = ["app", "komiku_web", "kiryuu_web", "voratoon_web", "shinigami_web"]
 
 [tool.fastapi]
 entrypoint = "app:app"

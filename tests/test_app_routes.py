@@ -69,7 +69,8 @@ class ApiRoutesTest(unittest.TestCase):
         empty = {"items": [], "page": 1, "per_page": 10, "genre": "nope", "has_next": False}
         with patch.object(app_module.web, "by_genre", return_value=empty), \
              patch.object(app_module.kiryuu, "by_genre", return_value={'items': []}), \
-             patch.object(app_module.voratoon, "by_genre", return_value={'items': []}):
+             patch.object(app_module.voratoon, "by_genre", return_value={'items': []}), \
+             patch.object(app_module.shinigami, "by_genre", return_value={'items': []}):
             self.assertEqual(self.client.get("/api/genre/nope").status_code, 404)
 
     def test_upstream_failure_becomes_502(self):
@@ -201,7 +202,8 @@ class ApiRoutesTest(unittest.TestCase):
         with patch.object(app_module.api, 'popular', return_value=[]), \
              patch.object(app_module.kiryuu, 'popular',
                           return_value=[{'slug': 'x', 'title': 'X', 'type': 'manga', 'cover': ''}]), \
-             patch.object(app_module.voratoon, 'popular', return_value=[]):
+             patch.object(app_module.voratoon, 'popular', return_value=[]), \
+             patch.object(app_module.shinigami, 'popular', return_value=[]):
             res = self.client.get('/api/popular')
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -215,7 +217,8 @@ class ApiRoutesTest(unittest.TestCase):
         with patch.object(app_module.api, 'popular',
                           side_effect=_req.ConnectionError('boom')), \
              patch.object(app_module.kiryuu, 'popular', return_value=[]), \
-             patch.object(app_module.voratoon, 'popular', return_value=[]):
+             patch.object(app_module.voratoon, 'popular', return_value=[]), \
+             patch.object(app_module.shinigami, 'popular', return_value=[]):
             self.assertEqual(self.client.get('/api/popular').status_code, 502)
 
 
@@ -282,7 +285,8 @@ class VoratoonRoutesTest(unittest.TestCase):
         vora_items = [{'title': 'V Comic', 'slug': 'vt-v1', 'cover': '', 'chapter': '1', 'source': 'voratoon'}]
         with patch.object(app_module.api, 'latest', return_value=[]), \
              patch.object(app_module.kiryuu, 'home', return_value={'items': []}), \
-             patch.object(app_module.voratoon, 'latest', return_value=vora_items):
+             patch.object(app_module.voratoon, 'latest', return_value=vora_items), \
+             patch.object(app_module.shinigami, 'latest', return_value=[]):
             res = self.client.get('/api/latest')
         self.assertEqual(res.status_code, 200)
         slugs = [it['slug'] for it in res.json()]
@@ -292,7 +296,8 @@ class VoratoonRoutesTest(unittest.TestCase):
         vora_items = [{'title': 'V Magic', 'slug': 'vt-v-magic', 'cover': '', 'chapter': '1', 'source': 'voratoon'}]
         with patch.object(app_module.web, 'search', return_value={'items': []}), \
              patch.object(app_module.kiryuu, 'search', return_value={'items': []}), \
-             patch.object(app_module.voratoon, 'search', return_value={'items': vora_items}):
+             patch.object(app_module.voratoon, 'search', return_value={'items': vora_items}), \
+             patch.object(app_module.shinigami, 'search', return_value={'items': []}):
             res = self.client.get('/api/search?q=magic')
         self.assertEqual(res.status_code, 200)
         slugs = [it['slug'] for it in res.json()['items']]
@@ -326,6 +331,61 @@ class VoratoonRoutesTest(unittest.TestCase):
     def test_chapter_voratoon_404(self):
         with patch.object(app_module.voratoon, 'chapter_images', return_value=[]):
             res = self.client.get('/api/chapter/vt-magic-emperor/999')
+        self.assertEqual(res.status_code, 404)
+
+    def test_latest_includes_shinigami(self):
+        shn_items = [{'title': 'Demonic Emperor', 'slug': 'shn-abc', 'cover': '',
+                      'chapter': '', 'source': 'shinigami'}]
+        with patch.object(app_module.api, 'latest', return_value=[]), \
+             patch.object(app_module.kiryuu, 'home', return_value={'items': []}), \
+             patch.object(app_module.voratoon, 'latest', return_value=[]), \
+             patch.object(app_module.shinigami, 'latest', return_value=shn_items):
+            res = self.client.get('/api/latest')
+        self.assertEqual(res.status_code, 200)
+        slugs = [it['slug'] for it in res.json()]
+        self.assertIn('shn-abc', slugs)
+
+    def test_search_includes_shinigami(self):
+        shn_items = [{'title': 'Demonic Emperor', 'slug': 'shn-abc', 'cover': '',
+                      'chapter': '', 'source': 'shinigami'}]
+        with patch.object(app_module.web, 'search', return_value={'items': []}), \
+             patch.object(app_module.kiryuu, 'search', return_value={'items': []}), \
+             patch.object(app_module.voratoon, 'search', return_value={'items': []}), \
+             patch.object(app_module.shinigami, 'search', return_value={'items': shn_items}):
+            res = self.client.get('/api/search?q=demonic')
+        self.assertEqual(res.status_code, 200)
+        slugs = [it['slug'] for it in res.json()['items']]
+        self.assertIn('shn-abc', slugs)
+
+    def test_detail_shinigami_slug(self):
+        payload = {
+            'title': 'Demonic Emperor', 'slug': 'shn-abc',
+            'chapters': [{'title': 'Chapter 1', 'ch': '1', 'date': '', 'url': '/read/shn-abc/1'}],
+            'source': 'shinigami'
+        }
+        with patch.object(app_module.shinigami, 'detail', return_value=payload) as m:
+            res = self.client.get('/api/detail/shn-abc')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['title'], 'Demonic Emperor')
+        m.assert_called_once_with('shn-abc')
+
+    def test_detail_shinigami_404(self):
+        with patch.object(app_module.shinigami, 'detail', return_value=None):
+            res = self.client.get('/api/detail/shn-non-exist')
+        self.assertEqual(res.status_code, 404)
+
+    def test_chapter_shinigami_slug(self):
+        imgs = ['https://assets.shngm.id/chapter/m/00.jpg',
+                'https://assets.shngm.id/chapter/m/01.jpg']
+        with patch.object(app_module.shinigami, 'chapter_images', return_value=imgs) as m:
+            res = self.client.get('/api/chapter/shn-abc/1')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), imgs)
+        m.assert_called_once_with('shn-abc', '1')
+
+    def test_chapter_shinigami_404(self):
+        with patch.object(app_module.shinigami, 'chapter_images', return_value=[]):
+            res = self.client.get('/api/chapter/shn-abc/999')
         self.assertEqual(res.status_code, 404)
 
     def test_voratoon_direct_routes(self):

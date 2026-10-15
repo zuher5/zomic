@@ -1,6 +1,7 @@
 # Zomic — Web Komik (Manga Reader)
 
-Web komik yang mengambil data dari **komiku.org**: katalog lengkap **7.615+ komik**,
+Web komik yang mengambil data dari **komiku.org**, **kiryuu.to**,
+**v5.voratoon.com**, dan **Shinigami-Api**: katalog lengkap **7.615+ komik**,
 pencarian global, filter genre/tipe/huruf, detail lengkap, dan reader dengan
 gambar ter-proxy (lolos hotlink protection).
 
@@ -15,7 +16,7 @@ gambar ter-proxy (lolos hotlink protection).
 - Favorit, riwayat baca, penanda chapter sudah dibaca (tersimpan di browser via localStorage)
 - Filter tipe (manga/manhwa/manhua) & huruf awal A–Z
 - Tema gelap/terang
-- Proxy gambar ter-batas: host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, `*.uqni.net`, `*.voratoon.com`, `*.voratoon.id` (anti-SSRF)
+- Proxy gambar ter-batas: host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, `*.uqni.net`, `*.voratoon.com`, `*.voratoon.id`, `*.shngm.id` (anti-SSRF)
 
 ## Struktur
 
@@ -24,6 +25,7 @@ app.py           Backend FastAPI (endpoint + serve frontend)
 komiku_web.py    Scraper HTML komiku.org (katalog, search, genre)
 kiryuu_web.py    Scraper HTML kiryuu.to
 voratoon_web.py  Scraper native v5.voratoon.com
+shinigami_web.py Client REST Shinigami-Api (service Node terpisah, slug `shn-*`)
 web/index.html   Frontend SPA (hash router, tanpa build)
 run.sh           Auto-setup venv + deps + verifikasi + jalankan
 requirements.txt Dependensi Python
@@ -156,6 +158,7 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
 | Variable | Default | Fungsi |
 | --- | --- | --- |
 | `PORT` | `8000` | Port listen saat `python app.py` langsung (FastAPI Cloud tidak butuh ini) |
+| `SHINIGAMI_API_URL` | `http://localhost:3001/api` | Base URL service Shinigami-Api (sumber `shn-*`); bila tidak terjangkau, sumber ini dilewati |
 | `IMAGE_CACHE_DIR` | `/tmp/zomic-image-cache` | Direktori cache gambar |
 | `IMAGE_MAX_BYTES` | `12582912` | Batas ukuran download (12 MB) |
 | `IMAGE_MAX_PIXELS` | `25000000` | Batas dimensi/decompression bomb (25 MP) |
