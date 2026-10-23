@@ -677,6 +677,84 @@ def _merge_voratoon(items, vora_items):
     return items
 
 
+# Recommended: kontribusi per sumber (komiku, kiryuu, voratoon, shinigami).
+# Sebelumnya rail ini hanya komiku+kiryuu dan __init__ halaman selalu
+# didominasi komiku, jadi daftar "itu-itu aja" sampai cache 1 jam kedaluwarsa.
+# Sekarang urutan sumber dirotasi tiap REC_ROTATE_SECONDS (window 15 menit)
+# sehingga tampilan bergilir walau pool upstream tidak berubah.
+REC_ROTATE_SECONDS = 900
+REC_LIMIT = 20            # jumlah item yang dikirim ke klien
+REC_POOL_PER_SOURCE = 10  # kedalaman pool tiap sumber (dipangkas dari upstream)
+REC_SOURCES = ('komiku', 'kiryuu', 'voratoon', 'shinigami')
+# Umur cache pool. Harus > REC_ROTATE_SECONDS agar rotasi antar-window tidak
+# memicu scrape ulang tiap 15 menit (4 upstream!), tapi tidak perlu sepanjang
+# katalog: rail rekomendasi boleh lebih segar.
+REC_POOL_TTL = 3 * REC_ROTATE_SECONDS
+
+def _rotate_recommended(pools, step, limit=REC_LIMIT):
+    """Susun rail rekomendasi lintas sumber dengan rotasi deterministik.
+
+    ``pools`` = {nama_sumber: [card]}. ``step`` = nomor window rotasi
+    (time // REC_ROTATE_SECONDS) sehingga hasil stabil per window: semua
+    worker & edge cache melihat urutan yang sama.
+
+    Aturan:
+    - Sumber dirotasi (round-robin mulai dari ``step % n``) supaya item
+      terdepan bergilir — tidak selalu komiku.
+    - Tiap sumber hanya dipakai ``ceil(limit / jumlah_sumber_aktif)`` slot,
+      jadi keempat sumber selalu terwakili (tidak tenggelam oleh 20 item
+      komiku).
+    - Dedup per slug dan judul ternormalisasi; sisa slot diisi round-robin
+      tambahan supaya ``limit`` tetap terpenuhi bila ada sumber sepi.
+    """
+    names = [n for n in REC_SOURCES if pools.get(n)]
+    if not names:
+        return []
+    n = len(names)
+    start = step % n
+    order = names[start:] + names[:start]
+
+    queues = {name: [dict(c) for c in (pools.get(name) or [])] for name in order}
+    quota = {name: max(1, -(-limit // n)) for name in order}  # ceil
+
+    seen_slug, seen_title, out = set(), set(), []
+
+    def _take(name):
+        queue = queues[name]
+        while queue:
+            card = queue.pop(0)
+            slug = card.get('slug')
+            title = _norm_title(card.get('title'))
+            if not slug or slug in seen_slug or (title and title in seen_title):
+                continue
+            seen_slug.add(slug)
+            if title:
+                seen_title.add(title)
+            card['source'] = name
+            _en_item_genre(card)
+            out.append(card)
+            return True
+        return False
+
+    # Pass 1: jatah merata per sumber (urutan sumber sudah dirotasi).
+    for name in order:
+        for _ in range(quota[name]):
+            if len(out) >= limit or not _take(name):
+                break
+
+    # Pass 2: isi sisa slot dari sumber yang masih punya item.
+    while len(out) < limit:
+        progressed = False
+        for name in order:
+            if len(out) >= limit:
+                break
+            if _take(name):
+                progressed = True
+        if not progressed:
+            break
+
+    return out
+
 def _similar_from_kiryuu_genre(kiryuu, detail_data, slug, limit=10):
     """Similar pengganti untuk halaman kiryuu-standalone.
 
@@ -1273,30 +1351,58 @@ def popular(response: Response = None):
 
 @app.get("/api/recommended")
 def recommended(response: Response = None):
-    def _recommended():
-        def _komiku():
-            try:
-                return api.recommended()
-            except Exception as e:
-                log.warning("komiku.recommended() gagal: %s", e)
-                return None
+    def _komiku():
+        try:
+            return (api.recommended() or [])[:REC_POOL_PER_SOURCE]
+        except Exception as e:
+            log.warning("komiku.recommended() gagal: %s", e)
+            return []
 
-        def _kiryuu():
-            # kiryuu tidak punya /recommended, tapi kita bisa ambil dari home()
-            try:
-                return kiryuu.home(1).get('items', [])[:20]
-            except Exception as e:
-                log.warning("kiryuu.home(recommended) gagal: %s", e)
-                return []
+    def _kiryuu():
+        # kiryuu tidak punya /recommended, tapi kita bisa ambil dari home()
+        try:
+            return (kiryuu.home(1).get('items') or [])[:REC_POOL_PER_SOURCE]
+        except Exception as e:
+            log.warning("kiryuu.home(recommended) gagal: %s", e)
+            return []
 
-        komiku_items, kiryuu_items = _parallel(_komiku, _kiryuu)
-        if komiku_items is None and not kiryuu_items:
-            raise requests.RequestException("recommended: kedua upstream gagal")
-        return _merge_items(komiku_items or [], kiryuu_items or [])[:20]
+    def _voratoon():
+        # voratoon tidak punya /recommended; ranking lebih bervariasi dari
+        # halaman updates yang sudah dipakai rail "Recently Updated".
+        try:
+            items = voratoon.popular() or []
+            if not items:
+                items = voratoon.latest(1) or []
+            return items[:REC_POOL_PER_SOURCE]
+        except Exception as e:
+            log.warning("voratoon.recommended() gagal: %s", e)
+            return []
 
-    data = cached("recommended", _recommended, ttl=3600)
-    _edge_cache(response, s_maxage=600, swr=3600)
+    def _shinigami():
+        try:
+            items = shinigami.popular() or []
+            if not items:
+                items = shinigami.latest(1) or []
+            return items[:REC_POOL_PER_SOURCE]
+        except Exception as e:
+            log.warning("shinigami.recommended() gagal: %s", e)
+            return []
+
+    def _producer():
+        pools = dict(zip(REC_SOURCES, _parallel(_komiku, _kiryuu, _voratoon, _shinigami)))
+        if not any(pools.values()):
+            raise requests.RequestException("recommended: semua upstream gagal")
+        return pools
+
+    # Pool disimpan utuh (bukan hasil rotasi) supaya tiap window rotasi tidak
+    # memicu fetch ulang ke upstream. TTL pool > window rotasi; saat TTL habis
+    # pool di-refresh dan urutan tetap konsisten per window.
+    pools = cached("recommended_pools", _producer, ttl=REC_POOL_TTL)
+    pools = {name: list(pools.get(name) or []) for name in REC_SOURCES}
+    data = _rotate_recommended(pools, int(time.time() // REC_ROTATE_SECONDS), REC_LIMIT)
+    _edge_cache(response, s_maxage=300, swr=900)
     return data
+
 
 @app.get("/api/colored")
 def colored(response: Response = None):

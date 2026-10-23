@@ -115,13 +115,23 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/genres` | Daftar 97 genre |
 | `/api/genre/{slug}?page=` | Komik per genre |
 | `/api/popular` | Populer per tipe |
-| `/api/recommended` | Rekomendasi (40 item) |
+| `/api/recommended` | Rekomendasi lintas sumber (20 item, rotasi) |
 | `/api/colored` | Komik berwarna |
 | `/api/detail/{slug}` | Detail komik + chapter |
 | `/api/chapter/{slug}/{chapter}` | Daftar URL gambar (array) |
 | `/api/img?url=` | Proxy gambar legacy (allowlist komiku/kiryuu/voratoon) |
 | `/api/img?url=&w=&format=&q=` | Proxy cover ter-optimasi (resize + AVIF/WebP/JPEG + cache) |
 | `/health` | Status server + katalog |
+
+### Rotasi `/api/recommended`
+
+Rail "Recommended For You" digabung dari **empat** sumber (komiku, kiryuu,
+voratoon, shinigami) dengan jatah merata per sumber (`ceil(20 / jumlah
+sumber aktif)`), sisa slot diisi round-robin. Urutan sumber dirotasi tiap
+window 15 menit (`REC_ROTATE_SECONDS`) sehingga isi & pemimpin rail bergilir
+walau pool upstream belum berubah. Pool upstream di-cache terpisah
+(`recommended_pools`, TTL 45 menit) supaya rotasi tidak memicu scrape ulang.
+Sumber yang gagal/tidak dikonfigurasi dilewati; bila semua gagal → 502.
 
 ### Sumber chapter (`/api/chapter`)
 
