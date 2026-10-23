@@ -437,6 +437,14 @@ a.rrow2 .r2go:hover{color:var(--text);transform:translateX(2px)}
 }
 .frow.az{gap:var(--sp-1)}
 .frow.az a{min-width:44px;padding:0;justify-content:center}
+/* Huruf A–Z tidak berlaku saat katalog dilayani mirror (filter hanya
+   per halaman): tampilkan tapi non-aktif agar tidak menipu. */
+.frow.az .az-off{
+  display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;
+  font-size:var(--t-meta);font-weight:600;color:var(--text);opacity:.32;
+  border:1px dashed var(--line);border-radius:var(--r-pill);
+}
+@media (hover:hover) and (pointer:fine){.frow.az .az-off{min-height:36px}}
 
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;
@@ -1345,19 +1353,23 @@ async function pageCatalog(page, params) {
     const s = u.toString();
     return '/explore' + (s ? '?' + s : '');
   };
-  const filters = `<div class="filters">
+  const filtersHtml = letterOk => `<div class="filters">
     <div class="frow" role="group" aria-label="Type filter">
       ${TYPES.map(([v, l]) => `<a href="${filterHref(v, letter)}" aria-current="${v === type}">${l}</a>`).join('')}
     </div>
-    <div class="frow az" role="group" aria-label="Letter filter">
-      ${LETTERS.map(L => `<a href="${filterHref(type, L)}" aria-current="${L === letter}">${L || 'A–Z'}</a>`).join('')}
+    <div class="frow az" role="group" aria-label="Letter filter"${letterOk ? '' : ' data-disabled="true"'}>
+      ${LETTERS.map(L => letterOk
+        ? `<a href="${filterHref(type, L)}" aria-current="${L === letter}">${L || 'A–Z'}</a>`
+        : `<span class="az-off" aria-disabled="true" title="Not available on mirror catalog">${L || 'A–Z'}</span>`).join('')}
     </div>
   </div>`;
   const title = TYPES.find(([v]) => v === type)?.[1] || 'Comics';
   const h = head('Catalog', title === 'Comics' ? 'Comics' : title);
   const gen = _routeGen;
   const needFresh = (page === 1 && !letter);
-  view.innerHTML = h + filters + skelGrid(10);
+  // Huruf belum tentu didukung (lihat filters_supported dari API): render
+  // awal dengan huruf non-aktif, dinyalakan lagi setelah respons tiba.
+  view.innerHTML = h + filtersHtml(false) + skelGrid(10);
   try {
     const qs = new URLSearchParams({ page });
     if (type) qs.set('type', type);
@@ -1367,10 +1379,12 @@ async function pageCatalog(page, params) {
       needFresh ? api('/api/latest').catch(() => []) : Promise.resolve(null),
     ]);
     if (gen !== _routeGen) return; // stale render, route moved on
+    const letterOk = !d.filters_supported || d.filters_supported.letter !== false;
     const sub = joinDot([
       d.total ? d.total.toLocaleString() + ' titles' : '',
       d.total_pages ? d.total_pages + ' pages' : '',
       letter ? 'Letter ' + letter : '',
+      d.degraded ? 'via ' + (d.source || 'mirror') : '',
     ]);
     let items = d.items || [];
     if (latestItems && latestItems.length) {
@@ -1392,8 +1406,12 @@ async function pageCatalog(page, params) {
       update: '',
       rating: '',
     }));
-    view.innerHTML = head('Catalog', title === 'Comics' ? 'Comics' : title, sub) + filters +
-      gridOf(catalogCards) + pager(d.page, d.has_next, href, d.total_pages);
+    view.innerHTML = head('Catalog', title === 'Comics' ? 'Comics' : title, sub) + filtersHtml(letterOk) +
+      (catalogCards.length ? gridOf(catalogCards)
+        : empty('Nothing on this page', d.degraded
+          ? 'Filters on the mirror catalog apply per page — try the next page.'
+          : 'No comics found.')) +
+      pager(d.page, d.has_next, href, d.total_pages);
   } catch (e) { fail(e); }
 }
 

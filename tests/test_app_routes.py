@@ -76,7 +76,15 @@ class ApiRoutesTest(unittest.TestCase):
     def test_upstream_failure_becomes_502(self):
         import requests
 
-        with patch.object(app_module.web, "catalog", side_effect=requests.ConnectionError("boom")):
+        # Katalog punya rantai fallback (komiku -> kiryuu -> shinigami), jadi
+        # 502 hanya terjadi bila SEMUA sumber gagal. Semua di-mock: test tidak
+        # boleh menyentuh jaringan.
+        with patch.object(app_module.web, "catalog",
+                          side_effect=requests.ConnectionError("boom")), \
+             patch.object(app_module.kiryuu, "catalog",
+                          side_effect=requests.ConnectionError("boom")), \
+             patch.object(app_module.shinigami, "latest",
+                          side_effect=requests.ConnectionError("boom")):
             self.assertEqual(self.client.get("/api/catalog?page=1").status_code, 502)
 
     def test_chapter_prefers_kiryuu_images(self):

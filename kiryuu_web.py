@@ -20,6 +20,12 @@ import requests
 SITE = "https://v7.kiryuu.to"
 PER_PAGE = 24
 
+# Kedalaman arsip /manga/page/{n}/ (terverifikasi: halaman 316 masih valid,
+# 317+ di-wrap upstream ke halaman 1). Dipakai sebagai batas paginasi
+# fallback katalog sehingga klien tidak menampilkan halaman yang berulang.
+CATALOG_MAX_PAGE = 316
+TYPES = ('manga', 'manhwa', 'manhua')
+
 RETRY_STATUS = {429, 500, 502, 503, 504}
 # 3x attempt: lihat komentar yang sama di komiku_web.py.
 RETRY_ATTEMPTS = 3
@@ -122,6 +128,12 @@ def _rating_float(r):
         return float(str(r or ''))
     except (TypeError, ValueError):
         return 0.0
+
+def _initial(title):
+    """Inisial judul untuk filter huruf (abaikan tanda baca/spasi)."""
+    m = re.match(r'[^A-Za-z0-9]*([A-Za-z0-9])', str(title or ''))
+    return m.group(1).upper() if m else ''
+
 
 def _humanize_slug(s):
     """Jadikan slug (mis. 'jungle-juice') tampil ramah: 'Jungle Juice'.
@@ -480,6 +492,57 @@ class KiryuuWeb:
             'total': max_page * PER_PAGE,
             'total_pages': max_page,
             'has_next': page < max_page,
+        }
+
+    def catalog(self, page=1, ctype=None, letter=None):
+        """Katalog manga kiryuu lewat arsip /manga/page/{n}/.
+
+        Fallback /api/catalog saat komiku.org memblokir scraper (403
+        Cloudflare). Arsip kiryuu berisi ribuan judul (~316 halaman).
+
+        Upstream tidak punya parameter filter, jadi ``ctype``/``letter``
+        diterapkan pada kartu halaman ini. ``has_next`` tetap dihitung dari
+        jumlah kartu MENTAH supaya paginasi tidak mentok saat filter sepi.
+        """
+        page = max(1, int(page))
+        ctype = (ctype or '').strip().lower()
+        if ctype not in TYPES:
+            ctype = ''
+        letter = (letter or '').strip()[:1].upper()
+
+        empty = {
+            'items': [], 'page': page, 'per_page': PER_PAGE, 'total': None,
+            'total_pages': CATALOG_MAX_PAGE, 'has_next': False, 'raw_count': 0,
+            'filters': {'type': ctype, 'letter': letter},
+        }
+        if page > CATALOG_MAX_PAGE:
+            return empty
+
+        url = f"{SITE}/manga/" if page == 1 else f"{SITE}/manga/page/{page}/"
+        raw = self._fetch(url)
+        cards = self._dedupe(self._parse_listing(raw))
+
+        items = cards
+        if ctype:
+            items = [c for c in items if str(c.get('type') or '').lower() == ctype]
+        if letter:
+            items = [c for c in items if _initial(c.get('title')) == letter]
+        for c in items:
+            c['source'] = 'kiryuu'
+
+        return {
+            'items': items,
+            'page': page,
+            'per_page': PER_PAGE,
+            # Kiryuu tidak mengekspos jumlah judul/halaman total (markup hanya
+            # menautkan halaman sekitar); jangan tampilkan angka palsu.
+            'total': None,
+            'total_pages': CATALOG_MAX_PAGE,
+            'has_next': page < CATALOG_MAX_PAGE and bool(cards),
+            # Jumlah kartu SEBELUM filter: dipakai /api/catalog untuk tahu
+            # halaman ini valid walau filter type/letter menghasilkan 0 item.
+            'raw_count': len(cards),
+            'filters': {'type': ctype, 'letter': letter},
         }
 
     def search(self, query, page=1):

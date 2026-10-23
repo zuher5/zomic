@@ -110,7 +110,7 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | Endpoint | Keterangan |
 | --- | --- |
 | `/api/latest` | Komik terbaru (20 item) |
-| `/api/catalog?page=&type=&letter=` | Katalog lengkap (manga/manhwa/manhua, A–Z) |
+| `/api/catalog?page=&type=&letter=` | Katalog (komiku → kiryuu → shinigami, lihat di bawah) |
 | `/api/search?q=&page=` | Pencarian seluruh katalog |
 | `/api/genres` | Daftar 97 genre |
 | `/api/genre/{slug}?page=` | Komik per genre |
@@ -122,6 +122,33 @@ IPv4), mis. `http://192.168.165.103:8000`.
 | `/api/img?url=` | Proxy gambar legacy (allowlist komiku/kiryuu/voratoon) |
 | `/api/img?url=&w=&format=&q=` | Proxy cover ter-optimasi (resize + AVIF/WebP/JPEG + cache) |
 | `/health` | Status server + katalog |
+
+### Katalog `/api/catalog` (rantai sumber)
+
+`komiku.org`/`komiku.id` dilindungi Cloudflare dan membalas **403 untuk semua
+path HTML** (`/daftar-komik/`, `/`, `/genre/...`), jadi katalog tidak boleh
+bergantung pada satu sumber. Urutan sumber:
+
+1. **komiku** (`komiku_web.catalog`) — dipakai bila HTML-nya bisa diakses;
+2. **kiryuu** (`kiryuu_web.catalog`, arsip `/manga/page/{n}/`) — cadangan utama,
+   ~316 halaman (di atas itu upstream wrap ke halaman 1);
+3. **shinigami** (`/manga/latest?page=n`) — cadangan terakhir bila
+   `SHINIGAMI_API_URL` aktif.
+
+Respons membawa `source`, `degraded`, dan `filters_supported`:
+
+- `degraded: true` → bukan dari komiku; cache edge dipersingkat (300s).
+- `filters_supported.letter: false` → sumber cadangan tidak punya indeks A–Z,
+  jadi filter huruf hanya menyaring kartu **pada halaman itu** (baris huruf
+  ditampilkan non-aktif di UI).
+- `total` bisa `null` (kiryuu tidak mengekspos jumlah judul); `total_pages`
+  memakai batas aman arsip.
+
+Kegagalan 401/403/407/451 dari komiku menyalakan **circuit breaker** 10 menit
+(`komiku_html_block`) sehingga request berikutnya langsung ke cadangan tanpa
+membayar fetch yang pasti gagal. Status terlihat di `/health?deep=1`
+(`komiku_html`, `catalog_source`); 5xx tidak dianggap blokir sehingga tetap
+dicoba ulang.
 
 ### Rotasi `/api/recommended`
 

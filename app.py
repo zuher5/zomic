@@ -1114,6 +1114,34 @@ def latest(page: int = Query(1, ge=1), response: Response = None):
     _edge_cache(response, s_maxage=300, swr=2700)
     return data
 
+# --- CIRCUIT BREAKER KOMIKU HTML ---
+# komiku.org/komiku.id memakai Cloudflare dan menolak scraper dari IP server
+# (403 untuk SEMUA path HTML, termasuk /daftar-komik/). Tanpa breaker, setiap
+# request katalog/search/genre/deep-health membayar fetch yang pasti gagal.
+# Kegagalan blokir dicatat dengan TTL pendek sehingga begitu upstream pulih
+# jalur komiku otomatis dicoba lagi tanpa restart.
+KOMIKU_HTML_BLOCK_TTL = 600
+_KOMIKU_HTML_BLOCK_KEY = 'komiku_html_block'
+# Status yang berarti "diblokir", bukan gangguan sesaat (5xx tetap dicoba).
+_KOMIKU_BLOCK_STATUS = {401, 403, 407, 451}
+
+
+def _komiku_html_blocked():
+    return get_cache(_KOMIKU_HTML_BLOCK_KEY) is not None
+
+
+def _mark_komiku_html_blocked(reason):
+    set_cache(_KOMIKU_HTML_BLOCK_KEY, str(reason or 'blocked'), KOMIKU_HTML_BLOCK_TTL)
+
+
+def _note_komiku_html_error(exc):
+    """Tandai komiku HTML diblokir bila error-nya 401/403/407/451."""
+    resp = getattr(exc, 'response', None)
+    code = getattr(resp, 'status_code', None)
+    if code in _KOMIKU_BLOCK_STATUS:
+        _mark_komiku_html_blocked(f'HTTP {code}')
+
+
 @app.get("/api/catalog")
 def catalog(
     page: int = Query(1, ge=1, le=200),
@@ -1121,16 +1149,86 @@ def catalog(
     letter: str = Query("", max_length=1),
     response: Response = None,
 ):
-    """Katalog LENGKAP komiku.org (7.6rb+ komik), 50 per halaman."""
+    """Katalog dengan rantai sumber: komiku -> kiryuu -> shinigami.
+
+    komiku.org diblokir Cloudflare (403) untuk semua path HTML, jadi katalog
+    tidak boleh bergantung pada satu sumber. Respons selalu membawa
+    ``source``; ``degraded`` menandai katalog dari sumber cadangan (filter
+    huruf hanya berlaku per halaman — lihat ``filters_supported``).
+    """
     key = f"catalog_{page}_{type}_{letter}"
 
-    def _catalog():
+    def _komiku():
         data = web.catalog(page, ctype=type or None, letter=letter or None)
-        data['items'] = api._resolve_portrait(data['items'])
+        data['items'] = api._resolve_portrait(data.get('items') or [])
+        data['source'] = 'komiku'
+        data['degraded'] = False
+        data['filters_supported'] = {'type': True, 'letter': True}
         return data
 
+    def _kiryuu():
+        data = kiryuu.catalog(page, ctype=type or None, letter=letter or None)
+        # raw_count = kartu sebelum filter: halaman valid walau filter kosong
+        # (jangan jatuh ke sumber lain / 502 hanya karena tidak ada manhwa
+        # di halaman ini).
+        if not (data.get('raw_count') or data.get('items')):
+            return None
+        # Cover wp-content kiryuu sudah portrait (lihat komentar di detail):
+        # tanpa _resolve_portrait agar tidak menambah ~20 fetch per halaman.
+        data['source'] = 'kiryuu'
+        data['degraded'] = True
+        data['filters_supported'] = {'type': True, 'letter': False}
+        return data
+
+    def _shinigami():
+        items = shinigami.latest(page) or []
+        if not items:
+            return None
+        return {
+            'items': items,
+            'page': page,
+            'per_page': len(items),
+            'total': None,
+            'total_pages': 0,
+            'has_next': len(items) >= 30,
+            'filters': {'type': '', 'letter': ''},
+            'source': 'shinigami',
+            'degraded': True,
+            'filters_supported': {'type': False, 'letter': False},
+        }
+
+    def _catalog():
+        errors = []
+
+        if not _komiku_html_blocked():
+            try:
+                return _komiku()
+            except Exception as e:
+                _note_komiku_html_error(e)
+                errors.append(f"komiku={e.__class__.__name__}")
+                log.warning("komiku.catalog(page=%d) gagal: %s", page, e)
+
+        for name, fn in (('kiryuu', _kiryuu), ('shinigami', _shinigami)):
+            try:
+                data = fn()
+            except Exception as e:
+                errors.append(f"{name}={e.__class__.__name__}")
+                log.warning("%s.catalog(page=%d) gagal: %s", name, page, e)
+                continue
+            if data:
+                return data
+            errors.append(f"{name}=kosong")
+
+        raise requests.RequestException(
+            "catalog: semua upstream gagal (" + ', '.join(errors) + ")")
+
     data = cached(key, _catalog, ttl=1800)
-    _edge_cache(response, s_maxage=900, swr=3600)
+    # Respons degraded di-cache lebih singkat agar cepat pulih begitu komiku
+    # kembali normal.
+    if data.get('degraded'):
+        _edge_cache(response, s_maxage=300, swr=900)
+    else:
+        _edge_cache(response, s_maxage=900, swr=3600)
     return data
 
 @app.get("/api/search")
@@ -1402,7 +1500,6 @@ def recommended(response: Response = None):
     data = _rotate_recommended(pools, int(time.time() // REC_ROTATE_SECONDS), REC_LIMIT)
     _edge_cache(response, s_maxage=300, swr=900)
     return data
-
 
 @app.get("/api/colored")
 def colored(response: Response = None):
@@ -2053,8 +2150,15 @@ def health(deep: int = Query(0, ge=0, le=1)):
     except Exception as e:
         out["status"] = "error"
         out["latest_error"] = str(e)
+    # Katalog memakai rantai sumber yang sama dengan /api/catalog (komiku bisa
+    # diblokir Cloudflare 403), supaya deep-check tidak selalu "error".
+    out["komiku_html"] = "blocked" if _komiku_html_blocked() else "ok"
     try:
-        out["catalog_total"] = web.catalog(1)["total"]
+        cat = catalog(1, "", "")
+        out["catalog_total"] = cat.get("total")
+        out["catalog_source"] = cat.get("source", "komiku")
+        if cat.get("degraded") and out["status"] == "ok":
+            out["status"] = "degraded"
     except Exception as e:
         out["status"] = "degraded" if out["status"] == "ok" else "error"
         out["catalog_error"] = str(e)
