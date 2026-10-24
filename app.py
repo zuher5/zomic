@@ -1455,15 +1455,16 @@ def popular(response: Response = None):
         if komiku_groups is None and not kiryuu_pop and not vora_pop and not shn_pop:
             raise requests.RequestException("popular: semua upstream gagal")
         out = []
-        komiku_map = {g['key']: g for g in (komiku_groups or [])}
+        komiku_map = {str(g.get('key') or '').strip().lower(): g
+                      for g in (komiku_groups or []) if isinstance(g, dict)}
         for t in ('manga', 'manhwa', 'manhua'):
             k_group = komiku_map.get(t)
-            matching = [c for c in kiryuu_pop if str(c.get('type') or '').lower() == t]
+            matching = [c for c in kiryuu_pop if str(c.get('type') or '').strip().lower() == t]
             for c in matching:
                 c['source'] = 'kiryuu'
                 _en_item_genre(c)
             vora_matching = [c for c in vora_pop
-                             if str(c.get('type') or '').lower() == t]
+                             if str(c.get('type') or '').strip().lower() == t]
             items = []
             if k_group and k_group.get('items'):
                 items = _merge_items(k_group['items'], matching) if matching else list(k_group['items'])
@@ -1472,8 +1473,38 @@ def popular(response: Response = None):
             items = _merge_voratoon(items, vora_matching)
             # Shinigami bertipe 'Manhwa' -> masuk grup manhwa.
             shn_matching = [c for c in (shn_pop or [])
-                             if str(c.get('type') or '').lower() == t]
+                             if str(c.get('type') or '').strip().lower() == t]
             items = _merge_shinigami(items, shn_matching)
+            if t == 'manhwa' and not items:
+                # Popular endpoint upstream tertentu kadang hanya mengirim
+                # manga/manhua. Jangan hilangkan tab manhwa: isi dari listing
+                # terbaru sumber yang sama, tetap hanya saat memang dibutuhkan.
+                def _latest_items(fn, source):
+                    try:
+                        result = fn()
+                    except Exception as e:
+                        log.warning("%s.latest(popular fallback) gagal: %s", source, e)
+                        return []
+                    return [c for c in (result or [])
+                            if str(c.get('type') or '').strip().lower() == 'manhwa']
+
+                def _kiryuu_latest():
+                    return kiryuu.home(1).get('items', [])
+
+                fallback = _parallel(
+                    lambda: _latest_items(_kiryuu_latest, 'kiryuu'),
+                    lambda: _latest_items(lambda: voratoon.latest(1), 'voratoon'),
+                    lambda: _latest_items(lambda: shinigami.latest(1), 'shinigami'),
+                )
+                for source, candidates in zip(('kiryuu', 'voratoon', 'shinigami'), fallback):
+                    for card in candidates:
+                        card.setdefault('source', source)
+                    if source == 'kiryuu':
+                        items = _merge_items(items, candidates)
+                    elif source == 'voratoon':
+                        items = _merge_voratoon(items, candidates)
+                    else:
+                        items = _merge_shinigami(items, candidates)
             if items:
                 out.append({'key': t, 'title': f"{t.title()} Populer", 'items': items})
         return out

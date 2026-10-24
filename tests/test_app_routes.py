@@ -206,12 +206,49 @@ class ApiRoutesTest(unittest.TestCase):
         self.assertEqual(data[0]['items'][0]['slug'], 'a')
         self.assertEqual(data[0]['items'][0]['source'], 'kiryuu')
 
+    def test_popular_matches_case_and_whitespace_variants_for_group_key(self):
+        items = [{'slug': 'mw-normalized', 'title': 'Manhwa', 'type': 'Manhwa'}]
+        groups = [{'key': ' ManHwa ', 'title': 'Manhwa Populer', 'items': items}]
+        with patch.object(app_module.api, 'popular', return_value=groups), \
+             patch.object(app_module.kiryuu, 'popular', return_value=[]), \
+             patch.object(app_module.voratoon, 'popular', return_value=[]), \
+             patch.object(app_module.shinigami, 'popular', return_value=[]):
+            res = self.client.get('/api/popular')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        manhwa = next(group for group in data if group['key'] == 'manhwa')
+        self.assertEqual(manhwa['items'][0]['slug'], 'mw-normalized')
+
+    def test_popular_keeps_manhwa_group_using_latest_fallback(self):
+        komiku_groups = [
+            {'key': 'manga', 'items': [{'slug': 'm1', 'title': 'Manga One', 'type': 'Manga'}]},
+            {'key': 'manhua', 'items': [{'slug': 'h1', 'title': 'Manhua One', 'type': 'Manhua'}]},
+        ]
+        manhwa = {'slug': 'mw1', 'title': 'Manhwa One', 'type': 'Manhwa', 'cover': ''}
+        with patch.object(app_module.api, 'popular', return_value=komiku_groups), \
+             patch.object(app_module.kiryuu, 'popular', return_value=[]), \
+             patch.object(app_module.kiryuu, 'home', return_value={'items': [manhwa]}) as home, \
+             patch.object(app_module.voratoon, 'popular', return_value=[]), \
+             patch.object(app_module.voratoon, 'latest', return_value=[]), \
+             patch.object(app_module.shinigami, 'popular', return_value=[]), \
+             patch.object(app_module.shinigami, 'latest', return_value=[]):
+            res = self.client.get('/api/popular')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual([g['key'] for g in data], ['manga', 'manhwa', 'manhua'])
+        self.assertEqual(data[1]['items'][0]['slug'], 'mw1')
+        self.assertEqual(data[1]['items'][0]['source'], 'kiryuu')
+        home.assert_called_once_with(1)
+
     def test_popular_empty_komiku_groups_kiryuu(self):
         with patch.object(app_module.api, 'popular', return_value=[]), \
              patch.object(app_module.kiryuu, 'popular',
                           return_value=[{'slug': 'x', 'title': 'X', 'type': 'manga', 'cover': ''}]), \
+             patch.object(app_module.kiryuu, 'home', return_value={'items': []}), \
              patch.object(app_module.voratoon, 'popular', return_value=[]), \
-             patch.object(app_module.shinigami, 'popular', return_value=[]):
+             patch.object(app_module.voratoon, 'latest', return_value=[]), \
+             patch.object(app_module.shinigami, 'popular', return_value=[]), \
+             patch.object(app_module.shinigami, 'latest', return_value=[]):
             res = self.client.get('/api/popular')
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -225,8 +262,11 @@ class ApiRoutesTest(unittest.TestCase):
         with patch.object(app_module.api, 'popular',
                           side_effect=_req.ConnectionError('boom')), \
              patch.object(app_module.kiryuu, 'popular', return_value=[]), \
+             patch.object(app_module.kiryuu, 'home', return_value={'items': []}), \
              patch.object(app_module.voratoon, 'popular', return_value=[]), \
-             patch.object(app_module.shinigami, 'popular', return_value=[]):
+             patch.object(app_module.voratoon, 'latest', return_value=[]), \
+             patch.object(app_module.shinigami, 'popular', return_value=[]), \
+             patch.object(app_module.shinigami, 'latest', return_value=[]):
             self.assertEqual(self.client.get('/api/popular').status_code, 502)
 
 
