@@ -1,4 +1,7 @@
 import re, os
+import base64
+import binascii
+import json
 import hashlib
 import io
 import tempfile
@@ -847,6 +850,37 @@ async def lifespan(_app):
 # produksi: mengurangi information disclosure (daftar endpoint + skema).
 # Aktifkan dengan ENABLE_DOCS=1 saat development.
 _ENABLE_DOCS = os.environ.get('ENABLE_DOCS', '0') == '1'
+# Public Supabase project settings only: anon/publishable key is intended for
+# browser use and must be constrained by Supabase RLS. Never put service_role
+# or secret keys here.
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip().rstrip('/')
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '').strip()
+
+
+def _supabase_origin(value):
+    """Validate a public Supabase HTTPS origin; avoid unsafe CSP injection."""
+    try:
+        parsed = urlparse(value)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        return ''
+    if (not host or parsed.username or parsed.password or parsed.path not in ('', '/')
+            or parsed.query or parsed.fragment
+            or not re.fullmatch(r'[A-Za-z0-9.-]+', host)
+            or host.startswith('.') or host.endswith('.') or '..' in host):
+        return ''
+    if parsed.scheme == 'http' and host not in ('localhost', '127.0.0.1'):
+        return ''
+    if parsed.scheme not in ('http', 'https'):
+        return ''
+    expected_netloc = host if port is None else f'{host}:{port}'
+    if parsed.netloc.lower() != expected_netloc.lower():
+        return ''
+    return f'{parsed.scheme}://{expected_netloc}'
+
+
+_SUPABASE_ORIGIN = _supabase_origin(SUPABASE_URL)
+_SUPABASE_CSP_ORIGIN = f' {_SUPABASE_ORIGIN}' if _SUPABASE_ORIGIN else ''
 app = FastAPI(
     title="Zomic Komik",
     version="2.0.0",
@@ -894,7 +928,8 @@ _SECURITY_HEADERS = {
     'Content-Security-Policy': (
         "default-src 'self'; img-src 'self' data: https:; font-src 'self'; "
         "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+        f"connect-src 'self'{_SUPABASE_CSP_ORIGIN}; "
+        "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     ),
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
@@ -2132,6 +2167,34 @@ def proxy_image(
 # --- FRONTEND ---
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 INDEX_PATH = os.path.join(WEB_DIR, "index.html")
+
+
+@app.get("/api/account/config")
+def account_config():
+    """Non-secret client config for optional browser-side account sync."""
+    origin = _supabase_origin(SUPABASE_URL)
+    public_key = bool(SUPABASE_ANON_KEY and not SUPABASE_ANON_KEY.startswith('sb_secret_'))
+    # Legacy Supabase keys are JWTs. Fail closed if an operator accidentally
+    # configures a service_role JWT: this endpoint intentionally serves a key
+    # to public browsers.
+    if public_key and SUPABASE_ANON_KEY.count('.') == 2:
+        try:
+            payload = SUPABASE_ANON_KEY.split('.')[1]
+            payload += '=' * (-len(payload) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload.encode('ascii')))
+            if claims.get('role') == 'service_role':
+                public_key = False
+        except (ValueError, UnicodeError, binascii.Error):
+            pass
+    enabled = bool(origin and public_key)
+    return JSONResponse(
+        content={
+            'enabled': enabled,
+            'url': origin if enabled else '',
+            'anon_key': SUPABASE_ANON_KEY if enabled else '',
+        },
+        headers={'Cache-Control': 'no-store'},
+    )
 
 
 @app.get("/health")

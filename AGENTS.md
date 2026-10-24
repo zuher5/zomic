@@ -17,7 +17,7 @@ Panduan singkat untuk agent coding yang bekerja di repo ini.
 1. **Tidak menambah dependency berat** (BeautifulSoup, Node sidecar, framework frontend build).
 2. **Mock semua HTTP call di test** (`unittest.TestCase`). Test harus jalan tanpa jaringan: `python3 -m unittest discover tests`.
 3. **Anti-SSRF ketat** pada image proxy: host harus lolos `_img_host_allowed()` di `app.py`.
-4. **Env config terbatas**: `WORKERS`, `PORT`, `IMAGE_CACHE_TTL`, `IMG_HOST_SUFFIXES_EXTRA`, `SHINIGAMI_API_URL`.
+4. **Env config terbatas**: `WORKERS`, `PORT`, `IMAGE_CACHE_TTL`, `IMG_HOST_SUFFIXES_EXTRA`, `SHINIGAMI_API_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
 5. **Vercel di-pause**: kegagalan `vercel[bot]`/`Deployment was blocked` adalah normal; prioritas diagnosa ke FastAPI Cloud.
 6. **Kompatibilitas Termux/Android**: default `WORKERS=1`, hindari dependency yang butuh kompelasi native.
 7. **Jangan commit secret/token** atau file log/`.venv/`/cache.

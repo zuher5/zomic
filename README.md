@@ -13,7 +13,7 @@ gambar ter-proxy (lolos hotlink protection).
 - Populer per tipe, rekomendasi, dan komik berwarna
 - Detail komik lengkap: sinopsis, status, author, rating, tanggal chapter, komik serupa
 - Reader vertikal dengan navigasi prev/next chapter & shortcut keyboard (←/→/Esc)
-- Favorit, riwayat baca, penanda chapter sudah dibaca (tersimpan di browser via localStorage)
+- Favorit, riwayat baca, penanda chapter sudah dibaca (localStorage); sinkronisasi favorit opsional via akun email
 - Filter tipe (manga/manhwa/manhua) & huruf awal A–Z
 - Tema gelap/terang
 - Proxy gambar ter-batas: host `*.komiku.org`, `*.komiku.id`, `*.komiku.to`, `*.kiryuu.to`, `*.yuucdn.com`, `*.uqni.net`, `*.voratoon.com`, `*.voratoon.id`, `*.shngm.id` (anti-SSRF)
@@ -190,12 +190,41 @@ Dipakai untuk **cover** (card 240/400px, detail 800px):
   melebihi batas, header `Cache-Control: public, max-age=2592000, immutable`.
 - Header diagnostik `X-Image-Cache: HIT/MISS`.
 
+### Sinkronisasi Favorites lintas perangkat (opsional)
+
+Favorites tetap tersimpan lokal dan dapat dipakai tanpa akun. Untuk backup/restore
+lintas perangkat, sinkronisasi langsung memakai **Supabase Auth + REST** dari
+browser (tanpa SDK atau dependency baru). Password tidak ditangani Zomic; login
+menggunakan magic link email. Data cloud dipagari RLS per akun.
+
+Setup satu kali:
+
+1. Buat project Supabase dan aktifkan Email provider/magic link di Authentication.
+2. Di Authentication → URL Configuration, tambahkan URL situs ke Site URL dan
+   Redirect URLs. Untuk local dev tambahkan `http://localhost:8000/**`.
+3. Jalankan `supabase/bookmarks.sql` di SQL Editor. Tabel mengaktifkan RLS dan
+   setiap policy membatasi select/insert/update ke `auth.uid() = user_id`.
+4. Set `SUPABASE_URL` dan **publishable/anon key** pada environment app. Jangan
+   pernah mengisi `service_role`/secret key: endpoint config memang mengirimkan
+   nilai ini ke browser. RLS wajib aktif sebelum key publik dipakai.
+5. Restart app, tekan **Sign in**, minta email link, lalu buka link di browser
+   perangkat tersebut. Setelah login, Favorites lokal digabung dengan cloud;
+   edit selanjutnya tersinkron otomatis. Tombol Sync now tersedia di Account.
+
+Hapus favorit disimpan sebagai tombstone agar bookmark yang dihapus tidak
+muncul lagi dari perangkat lain. Logout menghapus sesi browser, tetapi tidak
+menghapus favorit lokal maupun cloud. Riwayat baca/posisi reader tidak ikut
+tersinkron pada tahap ini. Bila konfigurasi Supabase kosong, fitur akun
+nonaktif dan aplikasi berjalan persis seperti sebelumnya.
+
 ### Environment Variables
 
 | Variable | Default | Fungsi |
 | --- | --- | --- |
 | `PORT` | `8000` | Port listen saat `python app.py` langsung (FastAPI Cloud tidak butuh ini) |
 | `SHINIGAMI_API_URL` | `http://localhost:3001/api` | Base URL service Shinigami-Api (sumber `shn-*`); bila tidak terjangkau, sumber ini dilewati |
+| `SUPABASE_URL` | kosong | Project URL Supabase untuk konfigurasi browser sinkronisasi Favorites |
+| `SUPABASE_ANON_KEY` | kosong | Publishable/anon key Supabase (bukan service_role); dibatasi RLS |
 | `IMAGE_CACHE_DIR` | `/tmp/zomic-image-cache` | Direktori cache gambar |
 | `IMAGE_MAX_BYTES` | `12582912` | Batas ukuran download (12 MB) |
 | `IMAGE_MAX_PIXELS` | `25000000` | Batas dimensi/decompression bomb (25 MP) |
@@ -282,6 +311,9 @@ Catatan:
 - Env var image cache bisa di-set bila perlu, mis.
   `fastapi cloud env set IMAGE_CACHE_TTL "2592000"` (nilai default di kode
   sudah aman, jadi ini opsional).
+- Untuk mengaktifkan sinkronisasi Favorites, set `SUPABASE_URL` dan
+  `SUPABASE_ANON_KEY` di deployment environment; lihat langkah setup di atas.
+  Keduanya boleh jadi konfigurasi client publik, tetapi jangan set `service_role`.
 - Request scraper ke komiku.org bisa lambat (DDoS-Guard); `cached()` punya
   fallback cache stale, dan `/health` default tidak menyentuh upstream.
 - Cache disk pada FastAPI Cloud bersifat ephemeral (hilang saat instance

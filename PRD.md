@@ -15,7 +15,7 @@
 ## 3. Non-Goals
 
 - Hosting gambar komik sendiri.
-- Sistem login/akun server-side.
+- Sistem login/akun server-side; akun opsional memakai Supabase Auth dari browser untuk restore/sinkronisasi Favorites.
 - Build frontend (React/Vue/Next/Vite) di pipeline build.
 - Node.js sidecar runtime.
 
@@ -28,7 +28,7 @@
   - `voratoon_web.py`: native client v5.voratoon.com.
   - `shinigami_web.py`: client REST Shinigami-Api (service Node terpisah,
     namespace slug `shn-`, chapter diakses via UUID yang di-resolve dari nomor).
-- **Frontend**: `web/index.html` — hash router, localStorage untuk favorit/history/progress.
+- **Frontend**: `web/index.html` — router SPA, localStorage untuk favorit/history/progress; Supabase Auth + REST opsional untuk cloud Favorites dengan RLS.
 - **Deploy**:
   - **FastAPI Cloud**: production server persisten.
   - **Vercel**: cadangan, project di-pause di dashboard sampai admin mengaktifkan kembali.
@@ -39,7 +39,7 @@
 2. Detail → baca sinopsis, genre, daftar chapter.
 3. Reader → scroll gambar, auto next chapter via prev/next, shortcut keyboard.
 4. Catalog/Search → filter tipe/genre/huruf → buka detail.
-5. Koleksi → lihat favorit & history (localStorage).
+5. Koleksi → lihat favorit & history lokal; pengguna opsional login email untuk merge/restore Favorites antar perangkat.
 
 ## 6. Key Requirements
 
@@ -64,6 +64,8 @@
 | --- | --- | --- |
 | `PORT` | `8000` | Port server local. |
 | `SHINIGAMI_API_URL` | `http://localhost:3001/api` | Base URL service Shinigami-Api; sumber `shn-*` dilewati bila tak terjangkau |
+| `SUPABASE_URL` | kosong | Project URL untuk sync Favorites opsional |
+| `SUPABASE_ANON_KEY` | kosong | Publishable/anon key; hanya aman dengan RLS (tidak pernah service-role) |
 | `WORKERS` | `1` (cloud via `fastapi run`) | Jumlah worker uvicorn. |
 | `IMAGE_CACHE_TTL` | 30 hari | Masa simpan cache gambar. |
 | `IMG_HOST_SUFFIXES_EXTRA` | kosong | Host CDN tambahan untuk image proxy. |

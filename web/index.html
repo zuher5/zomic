@@ -500,6 +500,18 @@ a.rrow2 .r2go:hover{color:var(--text);transform:translateX(2px)}
   z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;
   white-space:pre-line;max-width:92vw;text-align:center;box-shadow:var(--shadow-lg);
 }
+.account-btn{flex:none;min-height:36px;padding:0 10px;font-size:var(--t-meta);white-space:nowrap}
+.account-dialog{width:min(420px,calc(100vw - 28px));padding:22px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);color:var(--text);box-shadow:var(--shadow-lg)}
+.account-dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}
+.account-dialog h2{margin:0 0 6px;font-size:var(--t-h2)}
+.account-dialog p{margin:8px 0;color:var(--muted);font-size:var(--t-sm)}
+.account-dialog label{display:block;margin:16px 0 6px;font-size:var(--t-meta)}
+.account-dialog input{width:100%;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);color:var(--text);font:inherit}
+.account-dialog .account-actions{display:flex;gap:8px;margin-top:14px}
+.account-dialog .account-actions .btn{flex:1}
+.account-dialog .account-status{min-height:1.4em;color:var(--muted)}
+.account-dialog .account-email{color:var(--text);font-weight:600;overflow-wrap:anywhere}
+@media(max-width:380px){.account-btn{padding:0 7px;font-size:.68rem}}
 
 /* Detail. */
 .crumb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:var(--t-meta);color:var(--muted);margin-bottom:var(--sp-2)}
@@ -914,6 +926,7 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
         <div class="sugg" id="sugg-0" role="listbox" aria-label="Search suggestions" hidden></div>
       </form>
 
+      <button class="btn account-btn" id="accountOpen" type="button">Sign in</button>
       <button class="icon-btn" id="searchToggle" aria-expanded="false" aria-controls="searchRow" aria-label="Search comics">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.5-4.5"/></svg>
       </button>
@@ -929,6 +942,23 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
 </header>
 
 <main id="view" class="wrap" aria-live="polite"></main>
+
+<dialog class="account-dialog" id="accountDialog" aria-labelledby="accountTitle">
+  <form method="dialog" style="display:flex;justify-content:flex-end"><button class="icon-btn" aria-label="Close account dialog">×</button></form>
+  <h2 id="accountTitle">Sync your favorites</h2>
+  <p>Sign in with an email link to restore bookmarks across your devices. Your existing local favorites are kept.</p>
+  <div id="accountSignedOut">
+    <label for="accountEmail">Email</label>
+    <input id="accountEmail" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
+    <div class="account-actions"><button class="btn primary" id="accountSend" type="button">Send sign-in link</button></div>
+  </div>
+  <div id="accountSignedIn" hidden>
+    <p class="account-email" id="accountEmailLabel"></p>
+    <p id="accountSyncStatus" class="account-status">Favorites are stored on this device.</p>
+    <div class="account-actions"><button class="btn" id="accountSyncNow" type="button">Sync now</button><button class="btn" id="accountSignOut" type="button">Sign out</button></div>
+  </div>
+  <p id="accountMessage" class="account-status" role="status" aria-live="polite"></p>
+</dialog>
 
 <nav class="botnav" id="botnav" aria-label="Main navigation"></nav>
 
@@ -1028,10 +1058,72 @@ const store = {
 };
 const favs = () => store.get('zomic:favs', {});
 const isFav = s => !!favs()[s];
+const deletedFavs = () => store.get('zomic:fav-deleted', {});
+const DEVICE_FAVS_KEY = 'zomic:device-favs';
+const DEVICE_DELETED_KEY = 'zomic:device-fav-deleted';
+const accountFavsKey = userId => 'zomic:account-favs:' + userId;
+const accountDeletedKey = userId => 'zomic:account-fav-deleted:' + userId;
+function accountSafeStamp(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 && n <= 8640000000000000 ? n : Date.now();
+}
+function accountNextStamp(slug) {
+  const old = favs()[slug]?.syncUpdatedAt || favs()[slug]?.at || deletedFavs()[slug] || 0;
+  return Math.max(Date.now(), accountSafeStamp(old) + 1);
+}
+function accountEnsureDeviceSnapshot() {
+  try {
+    const device = localStorage.getItem(DEVICE_FAVS_KEY);
+    if (device === null) store.set(DEVICE_FAVS_KEY, favs());
+    const removed = localStorage.getItem(DEVICE_DELETED_KEY);
+    if (removed === null) store.set(DEVICE_DELETED_KEY, deletedFavs());
+  } catch {}
+}
+function accountShowDeviceFavorites() {
+  const local = store.get(DEVICE_FAVS_KEY, {}), removed = store.get(DEVICE_DELETED_KEY, {});
+  store.set('zomic:favs', local);
+  store.set('zomic:fav-deleted', removed);
+  if (location.pathname === '/collection') route();
+}
+function accountRestoreDeviceFavorites() {
+  const base = store.get(DEVICE_FAVS_KEY, {}), removed = store.get(DEVICE_DELETED_KEY, {});
+  const merged = { ...base }, mergedRemoved = { ...removed };
+  for (const key of Object.keys(mergedRemoved)) delete merged[key];
+  for (const [slug, item] of Object.entries(favs())) {
+    const known = Number(merged[slug]?.syncUpdatedAt || merged[slug]?.at || mergedRemoved[slug] || 0);
+    const stamp = Number(item.syncUpdatedAt || item.at || 0);
+    if (stamp > known) { merged[slug] = item; delete mergedRemoved[slug]; }
+  }
+  for (const [slug, stamp] of Object.entries(deletedFavs())) {
+    const known = Number(merged[slug]?.syncUpdatedAt || merged[slug]?.at || mergedRemoved[slug] || 0);
+    if (Number(stamp) > known) { delete merged[slug]; mergedRemoved[slug] = stamp; }
+  }
+  store.set(DEVICE_FAVS_KEY, merged);
+  store.set(DEVICE_DELETED_KEY, mergedRemoved);
+  store.set('zomic:favs', merged);
+  store.set('zomic:fav-deleted', mergedRemoved);
+  if (location.pathname === '/collection') route();
+}
 function toggleFav(slug, data) {
-  const f = favs();
-  if (f[slug]) delete f[slug]; else f[slug] = { slug, ...data, at: Date.now() };
+  const f = favs(), deleted = deletedFavs(), now = accountNextStamp(slug);
+  if (f[slug]) {
+    delete f[slug]; deleted[slug] = now;
+  } else {
+    f[slug] = { slug, ...data, at: now, syncUpdatedAt: now };
+    delete deleted[slug];
+  }
   store.set('zomic:favs', f);
+  store.set('zomic:fav-deleted', deleted);
+  if (accountSession && accountUser?.id) {
+    store.set(accountFavsKey(accountUser.id), f);
+    store.set(accountDeletedKey(accountUser.id), deleted);
+  } else if (!accountSession) try {
+    if (localStorage.getItem(DEVICE_FAVS_KEY) !== null) {
+      store.set(DEVICE_FAVS_KEY, f);
+      store.set(DEVICE_DELETED_KEY, deleted);
+    }
+  } catch {}
+  accountScheduleSync();
   return !!f[slug];
 }
 const readHistory = () => store.get('zomic:history', []);
@@ -2038,6 +2130,283 @@ window.addEventListener('scroll', () => {
   ticking = true;
   requestAnimationFrame(() => { onReaderScroll(); ticking = false; });
 }, { passive: true });
+
+/* Optional account sync: Supabase Auth + RLS-protected REST, local-first. */
+const ACCOUNT_CFG = fetch('/api/account/config').then(r => r.ok ? r.json() : { enabled: false })
+  .catch(() => ({ enabled: false }));
+const ACCOUNT_SESSION_KEY = 'zomic:account-session';
+let accountSession = store.get(ACCOUNT_SESSION_KEY, null);
+let accountUser = null, accountSyncTimer = 0, accountSyncBusy = false, accountSyncQueued = false;
+const accountDialog = $('#accountDialog');
+const accountMessage = $('#accountMessage');
+function accountSay(msg, bad = false) {
+  if (!accountMessage) return;
+  accountMessage.textContent = msg;
+  accountMessage.style.color = bad ? 'var(--danger)' : 'var(--muted)';
+}
+function accountSetBusy(busy) {
+  const b = $('#accountSend'); if (b) b.disabled = busy;
+  const s = $('#accountSyncNow'); if (s) s.disabled = busy;
+}
+function accountSetSession(session, user = null) {
+  if (session) {
+    const expiresAt = Number(session.expires_at) || Math.floor(Date.now() / 1000) + Number(session.expires_in || 3600);
+    accountSession = { ...session, expires_at: expiresAt };
+    accountUser = user || session.user || accountUser || null;
+  } else { accountSession = null; accountUser = null; }
+  if (accountSession) store.set(ACCOUNT_SESSION_KEY, accountSession);
+  else { try { localStorage.removeItem(ACCOUNT_SESSION_KEY); } catch {} }
+  $('#accountSignedOut').hidden = !!accountSession;
+  $('#accountSignedIn').hidden = !accountSession;
+  $('#accountOpen').textContent = accountSession ? 'Account' : 'Sign in';
+  $('#accountEmailLabel').textContent = accountUser?.email || 'Signed in';
+}
+async function accountAuthRequest(path, body) {
+  const cfg = await ACCOUNT_CFG;
+  if (!cfg.enabled) throw new Error('Account sync is not configured yet.');
+  const res = await fetch(cfg.url + '/auth/v1/' + path, {
+    method: 'POST', headers: { apikey: cfg.anon_key, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.msg || data.message || data.error_description || 'Authentication request failed.');
+  return data;
+}
+async function accountRefresh() {
+  if (!accountSession?.refresh_token) throw new Error('Session expired. Sign in again.');
+  const data = await accountAuthRequest('token?grant_type=refresh_token', { refresh_token: accountSession.refresh_token });
+  accountSetSession(data, data.user);
+  return data.access_token;
+}
+async function accountRequest(path, options = {}, retried = false) {
+  const cfg = await ACCOUNT_CFG;
+  if (!cfg.enabled) throw new Error('Account sync is not configured yet.');
+  if (!accountSession?.access_token) throw new Error('Sign in to sync favorites.');
+  const res = await fetch(cfg.url + path, {
+    ...options,
+    headers: {
+      apikey: cfg.anon_key,
+      Authorization: 'Bearer ' + accountSession.access_token,
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  if (res.status === 401 && !retried) {
+    await accountRefresh();
+    return accountRequest(path, options, true);
+  }
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.message || detail.msg || `Sync failed (${res.status}).`);
+  }
+  if (res.status === 204) return null;
+  return res.json().catch(() => null);
+}
+function accountScheduleSync() {
+  if (!accountSession) return;
+  if (accountSyncBusy) { accountSyncQueued = true; return; }
+  clearTimeout(accountSyncTimer);
+  accountSyncTimer = setTimeout(() => accountSync().catch(e => accountSay(e.message, true)), 900);
+}
+function accountRowsLocal() {
+  accountEnsureDeviceSnapshot();
+  const userId = accountUser?.id;
+  // Each account has an independent local snapshot; never upload the previous
+  // account's cloud favorites when a different user signs in on this device.
+  if (userId && localStorage.getItem(accountFavsKey(userId)) === null) {
+    store.set(accountFavsKey(userId), store.get(DEVICE_FAVS_KEY, {}));
+    store.set(accountDeletedKey(userId), store.get(DEVICE_DELETED_KEY, {}));
+  }
+  const rows = new Map(),
+    fav = userId ? store.get(accountFavsKey(userId), {}) : store.get(DEVICE_FAVS_KEY, {}),
+    deleted = userId ? store.get(accountDeletedKey(userId), {}) : store.get(DEVICE_DELETED_KEY, {});
+  for (const [slug, item] of Object.entries(fav)) {
+    if (!slug || !/^[a-z0-9][a-z0-9_-]{0,239}$/i.test(slug)) continue;
+    rows.set(slug, {
+    comic_slug: slug, title: String(item.title || '').slice(0, 300),
+    cover: String(item.cover || '').slice(0, 2000), deleted: false,
+    updated_at: new Date(accountSafeStamp(item.syncUpdatedAt || item.at)).toISOString(),
+    });
+  }
+  for (const [slug, at] of Object.entries(deleted)) {
+    if (!slug || !/^[a-z0-9][a-z0-9_-]{0,239}$/i.test(slug)) continue;
+    const row = rows.get(slug);
+    if (!row || Date.parse(row.updated_at) <= Number(at)) rows.set(slug, {
+      comic_slug: slug, title: '', cover: '', deleted: true,
+      updated_at: new Date(accountSafeStamp(at)).toISOString(),
+    });
+  }
+  return rows;
+}
+function accountStamp(row) {
+  const n = Date.parse(row.updated_at || '');
+  return Number.isFinite(n) ? n : 0;
+}
+async function accountSync() {
+  if (!accountSession || !accountUser?.id) return;
+  if (accountSyncBusy) { accountSyncQueued = true; return; }
+  accountSyncBusy = true; accountSetBusy(true);
+  const status = $('#accountSyncStatus');
+  if (status) status.textContent = 'Syncing favorites…';
+  try {
+    const cloud = [];
+    for (let offset = 0, batch; ; offset += 1000) {
+      batch = await accountRequest('/rest/v1/bookmarks?select=comic_slug,title,cover,deleted,updated_at&order=updated_at.asc&limit=1000&offset=' + offset);
+      cloud.push(...(batch || []));
+      if (!batch || batch.length < 1000) break;
+    }
+    const merged = accountRowsLocal();
+    for (const row of cloud) {
+      const slug = String(row.comic_slug || '');
+      if (!slug || !/^[a-z0-9][a-z0-9_-]{0,239}$/i.test(slug)) continue;
+      const old = merged.get(slug);
+      if (!old || accountStamp(row) > accountStamp(old)) merged.set(slug, row);
+    }
+    // Include local edits made while the cloud GET was in flight.
+    for (const [slug, row] of accountRowsLocal()) {
+      const old = merged.get(slug);
+      if (!old || accountStamp(row) >= accountStamp(old)) merged.set(slug, row);
+    }
+    const nextFavs = {}, nextDeleted = {};
+    const outbound = [];
+    for (const [slug, row] of merged) {
+      if (row.deleted) nextDeleted[slug] = accountStamp(row);
+      else nextFavs[slug] = {
+        slug, title: row.title || '', cover: row.cover || '',
+        at: accountStamp(row), syncUpdatedAt: accountStamp(row),
+      };
+      outbound.push({
+        user_id: accountUser.id, comic_slug: slug,
+        title: row.deleted ? '' : String(row.title || '').slice(0, 300),
+        cover: row.deleted ? '' : String(row.cover || '').slice(0, 2000),
+        deleted: !!row.deleted, updated_at: row.updated_at,
+      });
+    }
+    store.set('zomic:favs', nextFavs);
+    store.set('zomic:fav-deleted', nextDeleted);
+    if (accountUser?.id) {
+      store.set(accountFavsKey(accountUser.id), nextFavs);
+      store.set(accountDeletedKey(accountUser.id), nextDeleted);
+    }
+    if (outbound.length) await accountRequest('/rest/v1/bookmarks?on_conflict=user_id,comic_slug', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(outbound),
+    });
+    if (status) status.textContent = `${Object.keys(nextFavs).length} favorite${Object.keys(nextFavs).length === 1 ? '' : 's'} synced`;
+    if (location.pathname === '/collection') route();
+    accountSay('Favorites synced.');
+  } catch (e) {
+    if (status) status.textContent = 'Sync failed — local favorites are safe.';
+    throw e;
+  } finally {
+    accountSyncBusy = false; accountSetBusy(false);
+    if (accountSyncQueued) { accountSyncQueued = false; accountScheduleSync(); }
+  }
+}
+async function accountInit() {
+  const cfg = await ACCOUNT_CFG;
+  if (!cfg.enabled) {
+    $('#accountSignedOut').hidden = true;
+    $('#accountSignedIn').hidden = true;
+    accountSay('Cloud sync is not configured on this server. Favorites still work on this device.');
+    return;
+  }
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const query = new URLSearchParams(location.search);
+  let completedSignIn = false;
+  const tokenHash = query.get('token_hash'), otpType = query.get('type') || 'email';
+  if (tokenHash) {
+    try {
+      const verified = await accountAuthRequest('verify', { token_hash: tokenHash, type: otpType });
+      accountSetSession(verified, verified.user);
+      completedSignIn = true;
+      history.replaceState(history.state, '', location.pathname);
+    } catch (e) { accountSay(e.message, true); }
+  }
+  const access = hash.get('access_token'), refresh = hash.get('refresh_token');
+  if (access && refresh) {
+    completedSignIn = true;
+    accountSetSession({ access_token: access, refresh_token: refresh,
+      expires_at: Number(hash.get('expires_at')) || Math.floor(Date.now() / 1000) + Number(hash.get('expires_in') || 3600) });
+    history.replaceState(history.state, '', location.pathname + location.search);
+    accountSay('Signed in. Syncing favorites…');
+  }
+  const oauthError = hash.get('error_description') || hash.get('error');
+  if (oauthError) {
+    history.replaceState(history.state, '', location.pathname + location.search);
+    accountSay(oauthError.replace(/\+/g, ' '), true);
+  }
+  if (!accountSession) return;
+  try {
+    if (accountSession.expires_at && accountSession.expires_at < Date.now() / 1000 + 30) await accountRefresh();
+    const cfg = await ACCOUNT_CFG;
+    let res = await fetch(cfg.url + '/auth/v1/user', { headers: {
+      apikey: cfg.anon_key, Authorization: 'Bearer ' + accountSession.access_token,
+    }});
+    if (res.status === 401) {
+      await accountRefresh();
+      res = await fetch(cfg.url + '/auth/v1/user', { headers: {
+        apikey: cfg.anon_key, Authorization: 'Bearer ' + accountSession.access_token,
+      }});
+    }
+    if (!res.ok) throw new Error('Session expired. Sign in again.');
+    accountUser = await res.json(); accountSetSession(accountSession, accountUser);
+    accountEnsureDeviceSnapshot();
+    if (completedSignIn && !accountDialog.open) accountDialog.showModal();
+    await accountSync();
+  } catch (e) {
+    accountSay(e.message, true);
+    if (/expired/i.test(e.message)) { accountSetSession(null); accountShowDeviceFavorites(); }
+  }
+}
+$('#accountOpen').onclick = async () => {
+  accountSay('');
+  const cfg = await ACCOUNT_CFG;
+  if (!cfg.enabled) accountSay('Account sync is not configured on this server.', true);
+  if (!accountDialog.open) accountDialog.showModal();
+};
+$('#accountSend').onclick = async () => {
+  const email = $('#accountEmail').value.trim();
+  if (!email) { accountSay('Enter your email address.', true); return; }
+  accountSetBusy(true); accountSay('Sending sign-in link…');
+  try {
+    const redirect = location.origin + location.pathname + location.search;
+    await accountAuthRequest('otp?redirect_to=' + encodeURIComponent(redirect), { email, create_user: true });
+    accountSay('Check your email and open the sign-in link on this device.');
+  } catch (e) { accountSay(e.message, true); }
+  finally { accountSetBusy(false); }
+};
+$('#accountSyncNow').onclick = () => accountSync().catch(e => accountSay(e.message, true));
+$('#accountSignOut').onclick = async () => {
+  try {
+    if (accountSession?.access_token) {
+      const cfg = await ACCOUNT_CFG;
+      await fetch(cfg.url + '/auth/v1/logout', { method: 'POST', headers: {
+        apikey: cfg.anon_key, Authorization: 'Bearer ' + accountSession.access_token,
+      }});
+    }
+  } catch {}
+  accountSetSession(null);
+  // Restore device-only collection so signing out cannot mix account data.
+  accountShowDeviceFavorites();
+  accountSay('Signed out. Device favorites remain saved on this device.');
+};
+accountSetSession(accountSession);
+accountInit();
+window.addEventListener('online', () => accountScheduleSync());
+window.addEventListener('storage', e => {
+  if (e.key === 'zomic:favs' || e.key === 'zomic:fav-deleted') {
+    try {
+      if (accountSession && accountUser?.id) {
+        store.set(accountFavsKey(accountUser.id), favs());
+        store.set(accountDeletedKey(accountUser.id), deletedFavs());
+      } else if (!accountSession && localStorage.getItem(DEVICE_FAVS_KEY) !== null) {
+        store.set(DEVICE_FAVS_KEY, favs());
+        store.set(DEVICE_DELETED_KEY, deletedFavs());
+      }
+    } catch {}
+    accountScheduleSync();
+  }
+});
 
 /* Navigation + router. */
 const NAV = [
