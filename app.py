@@ -402,6 +402,23 @@ class KomikuAPI:
         data = self._get("/rekomendasi")
         return self._resolve_portrait([self._card(i) for i in data]) if isinstance(data, list) else []
 
+    def similar(self, slug, limit=18):
+        """Komik mirip (similarKomik) dari detail-komik; judul '[testing ...]' dibuang."""
+        d = self._get(f"/detail-komik/{slug}")
+        raw = d.get('similarKomik') if isinstance(d, dict) else None
+        if not isinstance(raw, list):
+            return []
+        out = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get('title') or '').lstrip().lower().startswith('[testing'):
+                continue
+            card = self._card(item)
+            card['source'] = 'komiku'
+            out.append(card)
+        return out[:limit]
+
     def colored(self, page=1):
         """Komik berwarna. Upstream mengabaikan page, jadi selalu halaman 1."""
         data = self._get(f"/berwarna?page={page}")
@@ -757,6 +774,116 @@ def _rotate_recommended(pools, step, limit=REC_LIMIT):
             break
 
     return out
+
+REC_GENRE_CAP = 6         # maks item per genre utama dalam satu rail
+REC_SEED_COUNT = 3        # jumlah seed detail-komik yang diambil per refresh
+REC_WIDE_TTL = 6 * 3600   # umur pool luas (detik)
+
+
+def _primary_genre(card):
+    """Genre utama = token pertama field genre (string atau list)."""
+    g = card.get('genre')
+    if isinstance(g, list):
+        g = g[0] if g else ''
+    token = str(g or '').strip().split(' ')[0].lower()
+    return token
+
+
+def _dedupe_cards(cards):
+    """Dedup list card per slug (urutan pertama dipertahankan)."""
+    seen, out = set(), []
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        slug = c.get('slug')
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        out.append(c)
+    return out
+
+
+def _build_recommended_v2(wide, similar_pools, step, limit=REC_LIMIT):
+    """Rail rekomendasi v2: campuran pool luas + kemiripan seed, dengan batas genre.
+
+    ``wide`` = list card dari pool luas (sudah dedup).
+    ``similar_pools`` = list hasil ``similar()`` per seed (list of list card).
+    ``step`` = nomor window (deterministik). Urutan kandidat digeser dengan step
+    agar window berurutan menampilkan set item yang berbeda.
+    Dedup per slug & judul; tiap genre utama maks REC_GENRE_CAP.
+    Komposisi: sekitar 60% pool luas, sisanya kemiripan (diisi balik bila kosong).
+    """
+    seen_slug, seen_title, per_genre, out = set(), set(), {}, []
+
+    def _take(card):
+        slug = card.get('slug')
+        title = _norm_title(card.get('title'))
+        if not slug or slug == 'unknown' or slug in seen_slug or (title and title in seen_title):
+            return False
+        g = _primary_genre(card)
+        if g and per_genre.get(g, 0) >= REC_GENRE_CAP:
+            return False
+        seen_slug.add(slug)
+        if title:
+            seen_title.add(title)
+        if g:
+            per_genre[g] = per_genre.get(g, 0) + 1
+        out.append(dict(card))
+        return True
+
+    # Pool luas dibagi per sumber agar keempat sumber terwakili (bukan hanya
+    # Komiku yang jumlahnya paling besar). Urutan tiap sumber digeser per window.
+    by_source = {}
+    for c in (wide or []):
+        by_source.setdefault(c.get('source') or 'komiku', []).append(dict(c))
+    names = [n for n in REC_SOURCES if by_source.get(n)]
+    if names:
+        start = step % len(names)
+        names = names[start:] + names[:start]
+    for n in names:
+        q = by_source[n]
+        off = (step * limit) % len(q)
+        by_source[n] = q[off:] + q[:off]
+
+    sim_q = []
+    for pool in similar_pools or []:
+        sim_q.extend(dict(c) for c in (pool or []))
+    if sim_q:
+        off = (step * limit) % len(sim_q)
+        sim_q = sim_q[off:] + sim_q[:off]
+
+    wide_quota = max(1, round(limit * 0.6))
+    # Round-robin antar sumber: tiap sumber dapat satu item per putaran sampai
+    # kuota pool luas terpenuhi, sehingga semua sumber aktif ikut tampil.
+    cursors = {n: 0 for n in names}
+    wide_taken = 0
+    progressed = True
+    while wide_taken < wide_quota and progressed:
+        progressed = False
+        for n in names:
+            if wide_taken >= wide_quota:
+                break
+            q = by_source[n]
+            while cursors[n] < len(q):
+                c = q[cursors[n]]
+                cursors[n] += 1
+                if _take(c):
+                    wide_taken += 1
+                    progressed = True
+                    break
+    # sisa pool luas (dari semua sumber) sebagai cadangan terakhir
+    wide_q = [c for n in names for c in by_source[n]]
+    for c in sim_q:
+        if len(out) >= limit:
+            break
+        _take(c)
+    # Isi sisa dari pool luas bila kemiripan kurang.
+    for c in wide_q:
+        if len(out) >= limit:
+            break
+        _take(c)
+    return out[:limit]
+
 
 def _similar_from_kiryuu_genre(kiryuu, detail_data, slug, limit=10):
     """Similar pengganti untuk halaman kiryuu-standalone.
@@ -1605,7 +1732,49 @@ def recommended(response: Response = None):
     # pool di-refresh dan urutan tetap konsisten per window.
     pools = cached("recommended_pools", _producer, ttl=REC_POOL_TTL)
     pools = {name: list(pools.get(name) or []) for name in REC_SOURCES}
-    data = _rotate_recommended(pools, int(time.time() // REC_ROTATE_SECONDS), REC_LIMIT)
+    step = int(time.time() // REC_ROTATE_SECONDS)
+
+    # v2: pool luas (rekomendasi + terbaru Komiku, Kiryuu/Voratoon/Shinigami)
+    # plus kandidat kemiripan dari beberapa seed per window.
+    def _wide():
+        # Pool dasar sudah ada di `pools` (cache 45 menit); tambahkan hanya
+        # /terbaru Komiku (listing update, 40 item) agar set item berubah.
+        items = []
+        for name in REC_SOURCES:
+            for c in pools.get(name) or []:
+                card = dict(c)
+                card.setdefault('source', name)
+                items.append(card)
+        try:
+            for c in (api.latest(1) or []):
+                card = dict(c)
+                card['source'] = 'komiku'
+                items.append(card)
+        except Exception as e:
+            log.warning("komiku.latest(wide) gagal: %s", e)
+        return _dedupe_cards(items)
+
+    wide = cached("recommended_wide", _wide, ttl=REC_WIDE_TTL) or []
+    # Seed = komik Komiku (slug tanpa prefix sumber) agar detail-komik valid.
+    seeds = [c for c in wide if c.get('slug') and c.get('source') == 'komiku'
+             and not str(c.get('slug')).startswith(('shn-', 'vt-'))]
+    chosen = []
+    if seeds:
+        off = step % len(seeds)
+        chosen = (seeds[off:] + seeds[:off])[:REC_SEED_COUNT]
+
+    def _sim(card):
+        try:
+            return cached(f"similar_{card['slug']}", lambda: api.similar(card['slug']), ttl=REC_WIDE_TTL)
+        except Exception as e:
+            log.warning("komiku.similar(%s) gagal: %s", card.get('slug'), e)
+            return []
+
+    similar_pools = [_sim(c) for c in chosen]
+    data = _build_recommended_v2(wide, similar_pools, step, REC_LIMIT)
+    if not data:
+        # Degradasi: pakai rotasi lama bila v2 kosong.
+        data = _rotate_recommended(pools, step, REC_LIMIT)
     _edge_cache(response, s_maxage=300, swr=900)
     return data
 
