@@ -160,10 +160,9 @@ class ShinigamiWeb:
         hit = self._chapters_cache.get(manga_uuid)
         if hit and now - hit[0] < self._chapters_ttl:
             return hit[1]
-        try:
-            data = self._get_json(f"/manga/{manga_uuid}/chapters")
-        except requests.RequestException:
-            return []
+        # Error upstream dilempar agar pemanggil bisa membedakan "kosong"
+        # dari "gagal"; hasil gagal TIDAK di-cache.
+        data = self._get_json(f"/manga/{manga_uuid}/chapters")
         raw = (data or {}).get("data") or []
         out = []
         for c in raw:
@@ -185,8 +184,12 @@ class ShinigamiWeb:
             return None
         try:
             data = self._get_json(f"/manga/{uuid}")
-        except requests.HTTPError:
-            return None
+        except requests.HTTPError as e:
+            # Hanya 404 yang berarti "komik tidak ada". 5xx/403 = upstream
+            # gagal; jangan disamarkan sebagai not-found.
+            if e.response is not None and e.response.status_code == 404:
+                return None
+            raise
         except requests.RequestException:
             raise
         d = (data or {}).get("data")
@@ -261,10 +264,9 @@ class ShinigamiWeb:
                 pass
         if not target:
             return []
-        try:
-            data = self._get_json(f"/manga/chapter/{target}/pages")
-        except requests.RequestException:
-            return []
+        # Kegagalan upstream dilempar (bukan []), agar reader tidak menampilkan
+        # "tidak ada halaman" saat sebenarnya Shinigami sedang down.
+        data = self._get_json(f"/manga/chapter/{target}/pages")
         pages = (data or {}).get("data") or []
         return [p.get("imageUrl") for p in pages if p.get("imageUrl")]
 

@@ -153,3 +153,43 @@ class TestShinigamiWeb(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShinigamiErrorSemanticsTest(unittest.TestCase):
+    """Bedakan 'tidak ada' (404) dari 'upstream gagal' (5xx/jaringan)."""
+
+    @staticmethod
+    def _http(status):
+        import requests
+        resp = requests.Response()
+        resp.status_code = status
+        return requests.HTTPError(f"status {status}", response=resp)
+
+    def test_detail_404_is_none_not_found(self):
+        web, fake = _mock_client({f"/manga/{MANGA_UUID}": self._http(404)})
+        with patch.object(web, "_get_json", side_effect=fake):
+            self.assertIsNone(web.detail(f"shn-{MANGA_UUID}"))
+
+    def test_detail_5xx_is_raised_not_not_found(self):
+        import requests
+        web, fake = _mock_client({f"/manga/{MANGA_UUID}": self._http(503)})
+        with patch.object(web, "_get_json", side_effect=fake):
+            with self.assertRaises(requests.HTTPError):
+                web.detail(f"shn-{MANGA_UUID}")
+
+    def test_chapter_images_upstream_failure_raises(self):
+        import requests
+        mapping = {
+            f"/manga/{MANGA_UUID}/chapters": {"data": [{"name": "Chapter 1", "url": CHAP_UUID}]},
+            f"/manga/chapter/{CHAP_UUID}/pages": requests.RequestException("down"),
+        }
+        web, fake = _mock_client(mapping)
+        with patch.object(web, "_get_json", side_effect=fake):
+            with self.assertRaises(requests.RequestException):
+                web.chapter_images(f"shn-{MANGA_UUID}", "1")
+
+    def test_list_failure_still_empty_for_fallback(self):
+        import requests
+        web, fake = _mock_client({"/manga/latest": requests.RequestException("down")})
+        with patch.object(web, "_get_json", side_effect=fake):
+            self.assertEqual(web.latest(1), [])
