@@ -23,8 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Proyek butuh >=3.10 (httpx2 2.1+ sudah drop 3.9).
-        python-version: ["3.11", "3.12", "3.13"]
+        # Selaras dengan pyproject.toml requires-python >=3.10.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +41,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Compile check
+        run: python -m py_compile app.py komiku_web.py kiryuu_web.py voratoon_web.py shinigami_web.py
+
       - name: Run test suite
         # Test fully mocked — tidak menyentuh network, jadi stabil & cepat.
         run: python -m unittest discover -s tests -q
@@ -48,8 +51,9 @@ jobs:
       - name: Scan for committed secrets
         run: |
           fail=0
-          # Pola yang relevan untuk repo ini: token GitHub, private key, .env.
-          if git grep -nIE '(gh[pousr]_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' \
+          # Pola yang relevan untuk repo ini: token GitHub, private key, .env,
+          # serta kunci Supabase secret/service_role (sb_secret_ dan JWT service_role).
+          if git grep -nIE '(gh[pousr]_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|sb_secret_[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})' \
                -- . ':!*.md' ':!*.lock'; then
             echo "::error::Kemungkinan rahasia ter-commit. Tinjau di atas."
             fail=1
