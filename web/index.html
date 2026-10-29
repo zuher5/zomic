@@ -970,6 +970,8 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const view = $('#view');
 const IMG = u => u ? '/api/img?url=' + encodeURIComponent(u) : '';
+/* Hanya http(s) yang boleh sampai ke atribut gambar; selain itu kosong. */
+const safeHttpUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
 /* thumbnail.komiku.* ships pre-cropped thumbs; strip resize params so the proxy resizes the original. */
 const THUMB_HOST = /(^|\.)thumbnail\.komiku\.(org|to|id)$/i;
 const opt = (u, w, fmt = 'auto', q = 78) => {
@@ -1756,7 +1758,7 @@ async function pageReader(slug, ch) {
       </div>
 
       <div class="pages" id="pages">${pages.map((u, n) =>
-        `<div class="pg" data-pg="${n}" data-pg-label="Halaman ${n + 1}"><img data-src="${esc(u)}" data-proxy="${IMG(u)}" data-pg="${n}" alt="Halaman ${n + 1}" referrerpolicy="no-referrer" decoding="async"></div>`).join('')}
+        `<div class="pg" data-pg="${n}" data-pg-label="Halaman ${n + 1}"><img data-src="${esc(safeHttpUrl(u))}" data-proxy="${esc(safeHttpUrl(u) ? IMG(u) : '')}" data-pg="${n}" alt="Halaman ${n + 1}" referrerpolicy="no-referrer" decoding="async"></div>`).join('')}
       </div>
 
       <div class="rend">
@@ -2021,7 +2023,9 @@ function mountReaderImages() {
     img.onerror = handleError;
 
     // Direct CDN dulu (cepat, tanpa beban worker server)
-    img.src = img.dataset.src;
+    if (img.dataset.src) img.src = img.dataset.src;
+    else if (img.dataset.proxy) { img.dataset.proxyTried = '1'; img.src = img.dataset.proxy; }
+    else { onImgFail(img, slot); return; }
     if (img.complete && img.naturalWidth) handleSuccess();
     setTimeout(() => {
       if (!img.dataset.shown && inFlight.has(img)) settle(img);
