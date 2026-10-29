@@ -961,15 +961,26 @@ _RATE_BUCKETS = {}
 _RATE_LOCK = threading.Lock()
 
 
+# Hanya peer langsung di daftar ini yang boleh mengatur IP klien lewat header
+# proxy. Tanpa ini, klien bisa mengirim header palsu tiap request dan
+# mendapat bucket rate limit baru. Format: IP/host dipisah koma.
+_TRUSTED_PROXIES = {
+    p.strip() for p in os.environ.get('TRUSTED_PROXIES', '127.0.0.1,::1').split(',')
+    if p.strip()
+}
+
+
 def _client_ip(request: Request):
-    # Cloudflare mengirim IP asli di CF-Connecting-IP; platform/proxy lain
-    # memakai X-Forwarded-For (ambil hop pertama = klien asli).
-    ip = request.headers.get('CF-Connecting-IP')
-    if not ip:
-        fwd = request.headers.get('X-Forwarded-For')
-        if fwd:
+    peer = request.client.host if request.client else ''
+    if peer and peer in _TRUSTED_PROXIES:
+        # Cloudflare: IP asli di CF-Connecting-IP; proxy lain: hop pertama XFF.
+        ip = (request.headers.get('CF-Connecting-IP') or '').strip()
+        if not ip:
+            fwd = request.headers.get('X-Forwarded-For') or ''
             ip = fwd.split(',')[0].strip()
-    return ip or (request.client.host if request.client else '') or 'unknown'
+        if ip:
+            return ip
+    return peer or 'unknown'
 
 
 def _rate_limited(key, limit):
@@ -991,17 +1002,19 @@ def _rate_limited(key, limit):
 @app.middleware("http")
 async def _rate_limit(request: Request, call_next):
     path = request.url.path
+    # Bucket per IP per GRUP endpoint (bukan per path), supaya tidak bisa
+    # dikali jumlah route. Sebelumnya tiap path punya bucket sendiri.
     if path == '/api/img':
-        limit = RATE_LIMIT_IMG
+        group, limit = 'img', RATE_LIMIT_IMG
     elif path.startswith('/api/'):
-        limit = RATE_LIMIT_API
+        group, limit = 'api', RATE_LIMIT_API
     elif path == '/health' and request.query_params.get('deep') in ('1', 'true'):
         # deep=0 (default) sengaja TIDAK dibatasi supaya health check
         # deployment tidak pernah kena 429.
-        limit = RATE_LIMIT_DEEP
+        group, limit = 'deep', RATE_LIMIT_DEEP
     else:
         return await call_next(request)
-    if _rate_limited(f"{_client_ip(request)}:{path}", limit):
+    if _rate_limited(f"{_client_ip(request)}:{group}", limit):
         headers = {'Retry-After': '60', **_SECURITY_HEADERS}
         return Response(content='{"detail":"rate limit exceeded"}',
                         status_code=429, media_type='application/json',
