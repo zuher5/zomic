@@ -965,6 +965,12 @@ body.chrome .floater:not(.at-end){opacity:1;pointer-events:auto;transition:opaci
 <script>
 "use strict";
 
+/* Cover gagal dimuat -> hapus elemen (menggantikan onerror inline agar CSP tanpa handler inline). */
+document.addEventListener('error', e => {
+  const t = e.target;
+  if (t instanceof HTMLImageElement && t.hasAttribute('data-cover')) t.remove();
+}, true);
+
 /* Helpers. */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -986,7 +992,7 @@ const opt = (u, w, fmt = 'auto', q = 78) => {
 const srcset = u => `${opt(u, 240)} 240w, ${opt(u, 400)} 400w, ${opt(u, 800)} 800w`;
 const coverImg = (u, w, sizes, eager = false, prio = false) => u
   ? `<img data-cover ${eager ? '' : 'loading="lazy"'} decoding="async"
-      ${prio ? 'fetchpriority="high"' : ''} src="${opt(u, w)}" srcset="${srcset(u)}" sizes="${sizes}" alt="" onerror="this.remove()">`
+      ${prio ? 'fetchpriority="high"' : ''} src="${opt(u, w)}" srcset="${srcset(u)}" sizes="${sizes}" alt="">`
   : '';
 
 const S_GRID = '(min-width:1280px) 174px, (min-width:1024px) 18vw, (min-width:768px) 22vw, (min-width:480px) 29vw, 45vw';
@@ -2554,7 +2560,7 @@ async function fetchSuggest(q, signal) {
 // w=120 adalah MINIMUM yang diizinkan backend /api/img (Query ge=120); angka
 // di bawah itu dijawab 422 dan cover tidak akan muncul sama sekali.
 const suggThumb = u => u
-  ? `<img data-cover loading="lazy" decoding="async" src="${opt(u, 120)}" alt="" onerror="this.remove()">`
+  ? `<img data-cover loading="lazy" decoding="async" src="${opt(u, 120)}" alt="">`
   : '';
 
 function wireSuggest(form) {
