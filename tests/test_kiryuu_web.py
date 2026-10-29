@@ -1,6 +1,7 @@
 """Unit tests untuk kiryuu_web.py — parsing HTML kiryuu.to."""
 
 import unittest
+import unittest.mock
 
 from kiryuu_web import KiryuuWeb, _clean_chapter_num, _clean_slug, _humanize_slug, _rating_float, _text
 

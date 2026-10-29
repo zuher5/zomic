@@ -252,8 +252,8 @@ class ReaderAndFrontendContractTest(unittest.TestCase):
         self.assertNotIn('function fitCover', html)
         # Reader memakai direct upstream CDN dengan fallback proxy lokal;
         # versi buffering menaruh URL CDN di data-src dan proxy di data-proxy.
-        self.assertIn('data-src="${esc(u)}"', html)
-        self.assertIn('data-proxy="${IMG(u)}"', html)
+        self.assertIn('data-src="${esc(safeHttpUrl(u))}"', html)
+        self.assertIn("data-proxy=\"${esc(safeHttpUrl(u) ? IMG(u) : '')}\"", html)
 
     def test_mobile_detail_header_centered_body_left(self):
         # Cover detail sudah center via margin:0 auto; header teks (judul/meta/
