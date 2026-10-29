@@ -1033,11 +1033,40 @@ def _parallel(*fns):
         return tuple(f.result() for f in futures)
 
 
+# Single-flight per key: miss bersamaan pada key yang sama hanya menjalankan
+# producer sekali; sisanya menunggu lalu membaca hasil cache. Lock tidak
+# dihapus dari dict (refcount) supaya waiter yang memegang lock lama tetap
+# berbagi lock yang sama dengan pemanggil berikutnya.
+_FLIGHT_LOCKS = {}
+_FLIGHT_GUARD = threading.Lock()
+
+
+def _flight_lock(key):
+    with _FLIGHT_GUARD:
+        lk = _FLIGHT_LOCKS.get(key)
+        if lk is None:
+            lk = threading.Lock()
+            _FLIGHT_LOCKS[key] = lk
+        return lk
+
+
 def cached(key, producer, ttl=3600, stale_ttl=21600):
-    """Gunakan cache fresh; saat upstream gagal, pakai cache stale yang masih baru."""
+    """Gunakan cache fresh; saat upstream gagal, pakai cache stale yang masih baru.
+
+    Miss pada key yang sama dibatasi single-flight (lihat _flight_lock).
+    """
     hit = get_cache(key)
     if hit is not None:
         return hit
+    with _flight_lock(key):
+        # Cek ulang: thread lain mungkin sudah mengisi cache saat kita menunggu.
+        hit = get_cache(key)
+        if hit is not None:
+            return hit
+        return _cached_produce(key, producer, ttl, stale_ttl)
+
+
+def _cached_produce(key, producer, ttl, stale_ttl):
     try:
         data = producer()
     except requests.HTTPError as e:
@@ -1852,9 +1881,17 @@ def _img_cache_get(key, ttl):
         if time.time() - st.st_mtime > ttl:
             return None
         with open(path, 'rb') as fh:
-            return fh.read()
+            data = fh.read()
     except OSError:
         return None
+    # LRU: sentuh mtime saat hit supaya eviction (yang mengurutkan mtime)
+    # membuang gambar yang paling lama TIDAK dipakai, bukan yang paling lama
+    # ditulis. Gagal touch tidak fatal.
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass
+    return data
 
 
 def _img_cache_put(key, data):
@@ -1885,20 +1922,34 @@ def _img_cache_put(key, data):
         _img_evict()
 
 
+_IMG_TMP_STALE_SECS = 300
+
+
 def _img_evict():
-    """Hapus cache tertua bila total melebihi batas aman."""
+    """Hapus cache paling jarang dipakai (LRU via mtime) bila melebihi batas.
+
+    Juga membersihkan file temp `*.tmp<pid>.<tid>` yatim (sisa proses mati)
+    yang lebih tua dari 5 menit.
+    """
     try:
         entries = [os.path.join(IMAGE_CACHE_DIR, f) for f in os.listdir(IMAGE_CACHE_DIR)]
     except OSError:
         return
     stats, total = [], 0
+    now = time.time()
     for p in entries:
         try:
             st = os.stat(p)
-            total += st.st_size
-            stats.append((st.st_mtime, p))
         except OSError:
             continue
+        if '.tmp' in os.path.basename(p) and now - st.st_mtime > _IMG_TMP_STALE_SECS:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+            continue
+        total += st.st_size
+        stats.append((st.st_mtime, p))
     if total <= IMAGE_CACHE_MAX_BYTES:
         return
     for _, p in sorted(stats):
