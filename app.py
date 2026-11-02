@@ -2267,8 +2267,28 @@ def _img_open(session, url):
     """
     current = url
     for _ in range(MAX_IMG_REDIRECTS + 1):
+        parsed_cur = urlparse(current)
+        host = (parsed_cur.hostname or '').lower()
+        is_voratoon = host.endswith('voratoon.com') or host.endswith('voratoon.id')
+
+        proxies = None
+        if is_voratoon and (voratoon.force_proxy or voratoon.proxy_pool.is_direct_blocked()):
+            p = voratoon.proxy_pool.get_proxy()
+            if p:
+                proxies = {'http': p, 'https': p}
+
         req = retry_get(session, current, timeout=(4, 10), stream=True,
-                        allow_redirects=False, headers={'Referer': _img_referer(current)})
+                        allow_redirects=False, proxies=proxies,
+                        headers={'Referer': _img_referer(current)})
+        if (req is None or req.status_code == 403) and is_voratoon and not proxies:
+            voratoon.proxy_pool.mark_direct_blocked()
+            p = voratoon.proxy_pool.get_proxy()
+            if p:
+                if req is not None:
+                    req.close()
+                req = retry_get(session, current, timeout=(4, 10), stream=True,
+                                allow_redirects=False, proxies={'http': p, 'https': p},
+                                headers={'Referer': _img_referer(current)})
         if req is None:
             return None
         if req.status_code in (301, 302, 303, 307, 308):
