@@ -326,8 +326,8 @@ class VoratoonRoutesTest(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_img_referer_for_voratoon(self):
-        self.assertEqual(app_module._img_referer("https://cdn.voratoon.com/img/01.jpg"), "https://v5.voratoon.com/")
-        self.assertEqual(app_module._img_referer("https://cvr.voratoon.id/cover.webp"), "https://v5.voratoon.com/")
+        self.assertEqual(app_module._img_referer("https://cdn.voratoon.com/img/01.jpg"), "https://v9.voratoon.com/")
+        self.assertEqual(app_module._img_referer("https://cvr.voratoon.id/cover.webp"), "https://v9.voratoon.com/")
 
     def test_latest_includes_voratoon(self):
         vora_items = [{'title': 'V Comic', 'slug': 'vt-v1', 'cover': '', 'chapter': '1', 'source': 'voratoon'}]

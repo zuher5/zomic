@@ -6,32 +6,35 @@ ranking, detail komik, dan viewer chapter VoraToon.
 
 import html as html_lib
 import json
+import logging
+import os
 import re
+import socket
 import threading
 import time
 from urllib.parse import quote_plus
 
-import socket
-
 import requests
 
-BASE = "https://v5.voratoon.com"
+log = logging.getLogger("zomic.voratoon")
 
-# --- Resolver override utk v6.voratoon.com ---
-# Dari 04 Okt 2026, v5.voratoon.com mengalihkan (301) ke v6.voratoon.com,
-# tapi DNS perangkat ini sering gagal me-resolve v6 (No address associated).
-# SNI/TLS tetap memakai hostname asli dari URL — kita hanya memaksa
-# getaddrinfo mengembalikan IP Cloudflare-nya via DNS-over-HTTPS.
+BASE = "https://v9.voratoon.com"
+
+# --- Resolver override utk v6 / v9 voratoon.com ---
+# v5/v6 dialihkan ke v9.voratoon.com. DNS perangkat kadang gagal me-resolve
+# subdomain voratoon baru (No address associated).
+# SNI/TLS tetap memakai hostname asli dari URL — getaddrinfo dipaksa
+# mengembalikan IP Cloudflare-nya via DNS-over-HTTPS bila DNS lokal gagal.
 _ORIG_GETADDRINFO = socket.getaddrinfo
-_V6_HOSTS = ('v6.voratoon.com', 'www.v6.voratoon.com')
-_V6_FALLBACK_IPS = ('104.21.39.242', '172.67.172.41')
+_VORATOON_HOSTS = ('v5.voratoon.com', 'www.v5.voratoon.com', 'v6.voratoon.com', 'www.v6.voratoon.com', 'v9.voratoon.com', 'www.v9.voratoon.com')
+_VORATOON_FALLBACK_IPS = ('104.21.39.242', '172.67.172.41')
 
 
-def _resolve_v6_ips():
+def _resolve_voratoon_ips():
     try:
         import urllib.request
         req = urllib.request.Request(
-            'https://cloudflare-dns.com/dns-query?name=v6.voratoon.com&type=A',
+            'https://cloudflare-dns.com/dns-query?name=v9.voratoon.com&type=A',
             headers={'accept': 'application/dns-json'})
         data = json.load(urllib.request.urlopen(req, timeout=5))
         ips = [a['data'] for a in data.get('Answer', []) if a.get('type') == 1]
@@ -39,17 +42,17 @@ def _resolve_v6_ips():
             return ips
     except Exception:
         pass
-    return list(_V6_FALLBACK_IPS)
+    return list(_VORATOON_FALLBACK_IPS)
 
 
-_V6_IPS = _resolve_v6_ips()
+_VORATOON_IPS = _resolve_voratoon_ips()
 
 
 def _patched_getaddrinfo(host, *args, **kwargs):
-    if isinstance(host, str) and host in _V6_HOSTS:
+    if isinstance(host, str) and host in _VORATOON_HOSTS:
         # Kembalikan alamat IP Cloudflare; hostname URL/SNI tidak berubah.
         results = []
-        for ip in _V6_IPS:
+        for ip in _VORATOON_IPS:
             try:
                 results.extend(_ORIG_GETADDRINFO(ip, *args, **kwargs))
             except socket.gaierror:
@@ -65,6 +68,79 @@ socket.getaddrinfo = _patched_getaddrinfo
 RETRY_STATUS = {429, 500, 502, 503, 504}
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.35
+
+# --- PROXY POOL FOR VORATOON ---
+# Voratoon menerapkan Cloudflare IP filter yang menolak (403) IP datacenter
+# (mis. FastAPI Cloud / AWS / Vercel), tetapi mengizinkan IP residential / node publik.
+_SEED_PROXIES = [
+    'http://103.237.102.191:11111',
+    'http://130.110.103.245:3128',
+    'http://43.99.60.244:8089',
+    'http://176.111.37.5:39811',
+    'http://176.111.37.216:39811',
+]
+_DEFAULT_PROXY_LIST_URL = "https://raw.githubusercontent.com/stormsia/proxy-list/main/working_proxies.txt"
+
+
+class VoratoonProxyPool:
+    """Pool proxy untuk bypass Cloudflare 403 Voratoon pada IP datacenter."""
+
+    def __init__(self, seed=None, list_url=None):
+        env_list = os.environ.get('VORATOON_PROXY_POOL', '').strip()
+        custom = [p.strip() for p in env_list.split(',') if p.strip()] if env_list else None
+        self._seed = list(custom or seed or _SEED_PROXIES)
+        self._proxies = list(self._seed)
+        self._list_url = list_url or os.environ.get('VORATOON_PROXY_LIST_URL', _DEFAULT_PROXY_LIST_URL)
+        self._lock = threading.Lock()
+        self._last_fetch = 0.0
+        self._fetch_ttl = 3600 * 6  # 6 jam
+        self._direct_blocked_until = 0.0
+
+    def is_direct_blocked(self):
+        return time.time() < self._direct_blocked_until
+
+    def mark_direct_blocked(self, duration=1800):
+        with self._lock:
+            self._direct_blocked_until = time.time() + duration
+
+    def mark_failed(self, proxy):
+        with self._lock:
+            if proxy in self._proxies and len(self._proxies) > 1:
+                self._proxies.remove(proxy)
+                self._proxies.append(proxy)
+
+    def get_proxy(self):
+        with self._lock:
+            self._maybe_refresh()
+            if not self._proxies:
+                return None
+            return self._proxies[0]
+
+    def _maybe_refresh(self):
+        if not self._list_url or (time.time() - self._last_fetch < self._fetch_ttl):
+            return
+        self._last_fetch = time.time()
+        threading.Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _refresh_worker(self):
+        try:
+            r = requests.get(self._list_url, timeout=6)
+            if r.status_code == 200:
+                lines = [l.strip() for l in r.text.splitlines() if l.strip().startswith('http://')]
+                if lines:
+                    with self._lock:
+                        seen = set(self._seed)
+                        merged = list(self._seed)
+                        for p in lines:
+                            if p not in seen:
+                                seen.add(p)
+                                merged.append(p)
+                        self._proxies = merged
+        except Exception:
+            pass
+
+
+_GLOBAL_PROXY_POOL = VoratoonProxyPool()
 
 HEADERS = {
     'User-Agent': (
@@ -142,8 +218,11 @@ def retry_get(session, url, attempts=RETRY_ATTEMPTS, base_delay=RETRY_BASE_DELAY
 class VoratoonWeb:
     """Scraper untuk v5.voratoon.com (REST & HTML)."""
 
-    def __init__(self, timeout=20):
+    def __init__(self, timeout=20, proxy_url=None, force_proxy=None):
         self.timeout = timeout
+        self.proxy_url = proxy_url or os.environ.get('VORATOON_PROXY_URL', '').strip()
+        self.force_proxy = force_proxy if force_proxy is not None else (os.environ.get('VORATOON_FORCE_PROXY', '0') == '1')
+        self.proxy_pool = _GLOBAL_PROXY_POOL
         self._local = threading.local()
 
     def _session(self):
@@ -156,12 +235,59 @@ class VoratoonWeb:
             return s
 
     def _fetch(self, url, timeout=None, attempts=None):
-        resp = retry_get(
-            self._session(), url,
-            timeout=timeout or self.timeout,
-            attempts=attempts or RETRY_ATTEMPTS,
-        )
+        sess = self._session()
+        to = timeout or self.timeout
+
+        # 1. Fixed proxy via env
+        if self.proxy_url:
+            sess.proxies = {'http': self.proxy_url, 'https': self.proxy_url}
+            resp = retry_get(sess, url, timeout=to, attempts=attempts or RETRY_ATTEMPTS)
+            if resp is None:
+                raise requests.RequestException(f"tidak ada respons dari {url} via proxy")
+            resp.raise_for_status()
+            return resp.text
+
+        # 2. Direct attempt (bila belum diblokir Cloudflare)
+        use_pool = self.force_proxy or self.proxy_pool.is_direct_blocked()
+        if not use_pool:
+            sess.proxies = {}
+            try:
+                resp = sess.get(url, timeout=to, allow_redirects=True)
+                if resp.status_code == 200:
+                    return resp.text
+                if resp.status_code == 404:
+                    resp.raise_for_status()
+                if resp.status_code == 403:
+                    log.warning("voratoon direct 403 on %s, switching to proxy pool", url)
+                    self.proxy_pool.mark_direct_blocked()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                log.warning("voratoon direct error on %s: %s, switching to proxy pool", url, e)
+                self.proxy_pool.mark_direct_blocked(duration=300)
+
+        # 3. Jalur Proxy Pool
+        max_tries = min(3, len(self.proxy_pool._proxies))
+        last_exc = None
+        for _ in range(max_tries):
+            p = self.proxy_pool.get_proxy()
+            if not p:
+                break
+            try:
+                resp = sess.get(url, proxies={'http': p, 'https': p}, timeout=to, allow_redirects=True)
+                if resp.status_code == 200:
+                    return resp.text
+                if resp.status_code == 404:
+                    resp.raise_for_status()
+                self.proxy_pool.mark_failed(p)
+            except Exception as e:
+                self.proxy_pool.mark_failed(p)
+                last_exc = e
+
+        # 4. Fallback direct retry_get
+        sess.proxies = {}
+        resp = retry_get(sess, url, timeout=to, attempts=attempts or RETRY_ATTEMPTS)
         if resp is None:
+            if last_exc:
+                raise requests.RequestException(f"semua proxy dan direct gagal untuk {url}: {last_exc}")
             raise requests.RequestException(f"tidak ada respons dari {url}")
         resp.raise_for_status()
         return resp.text

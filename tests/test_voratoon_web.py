@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from voratoon_web import VoratoonWeb, _clean_text, _fix_cover, _humanize_slug
+from voratoon_web import VoratoonWeb, VoratoonProxyPool, _clean_text, _fix_cover, _humanize_slug
 
 LATEST_HTML = """
 <html><body>
@@ -124,7 +124,7 @@ class TestVoratoonWeb(unittest.TestCase):
     def test_helpers(self):
         self.assertEqual(_clean_text("<b>Halo &amp; Dunia</b> <!-- comment -->"), "Halo & Dunia")
         self.assertEqual(_humanize_slug("magic-emperor"), "Magic Emperor")
-        self.assertEqual(_fix_cover("/api/cover?src=abc"), "https://v5.voratoon.com/api/cover?src=abc")
+        self.assertEqual(_fix_cover("/api/cover?src=abc"), "https://v9.voratoon.com/api/cover?src=abc")
         self.assertEqual(_fix_cover("https://cvr.voratoon.id/img.webp"), "https://cvr.voratoon.id/img.webp")
 
     def test_latest(self):
@@ -170,7 +170,7 @@ class TestVoratoonWeb(unittest.TestCase):
             self.assertEqual(items[0]['slug'], 'vt-magic-emperor')
             self.assertEqual(items[0]['title'], 'Magic Emperor')
             self.assertEqual(items[0]['type'], 'Manhwa')
-            self.assertTrue(items[0]['cover'].startswith('https://v5.voratoon.com/api/cover'))
+            self.assertTrue(items[0]['cover'].startswith('https://v9.voratoon.com/api/cover'))
 
     def test_detail(self):
         web, fake_get = _mock_web({'/series/magic-emperor': DETAIL_HTML})
@@ -207,6 +207,19 @@ class TestVoratoonWeb(unittest.TestCase):
         with patch.object(web, '_fetch', side_effect=lambda u, **kw: fake_get(u).text):
             imgs = web.chapter_images('magic-emperor', '999')
             self.assertEqual(imgs, [])
+
+    def test_proxy_pool_rotation_and_blocking(self):
+        pool = VoratoonProxyPool(seed=['http://p1:80', 'http://p2:80'], list_url=None)
+        self.assertFalse(pool.is_direct_blocked())
+        self.assertEqual(pool.get_proxy(), 'http://p1:80')
+
+        # Rotasi saat gagal
+        pool.mark_failed('http://p1:80')
+        self.assertEqual(pool.get_proxy(), 'http://p2:80')
+
+        # Blokir direct sementara
+        pool.mark_direct_blocked(duration=60)
+        self.assertTrue(pool.is_direct_blocked())
 
 
 if __name__ == '__main__':

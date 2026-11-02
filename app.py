@@ -115,6 +115,7 @@ PORTRAIT_NEG_TTL = 86400
 BACA_SLUG_TTL = 604800
 DETAIL_JSON_TTL = 1800
 KIRYUU_SLUG_TTL = 86400
+VORATOON_SLUG_TTL = 86400
 # Upstream komiku mengirim updateTime bahasa Indonesia ("24 menit lalu").
 # Kanonik disimpan & disajikan EN ("24 min ago") — satu titik konversi agar
 # label frontend dan parser NEW (updMin) konsisten.
@@ -1256,6 +1257,36 @@ def _resolve_kiryuu_slug(title, exclude=''):
     return out
 
 
+def _resolve_voratoon_slug(title, raw_slug=''):
+    """Slug voratoon terbaik (vt-<slug>) untuk komik dari sumber lain.
+
+    Dicoba dari slug mentah terlebih dahulu; jika tidak ketemu, cocokkan
+    dari judul. Hasil (termasuk '') di-cache agar tidak fetch berulang.
+    """
+    key = f"voratoon_slug_{(raw_slug or title or '').lower().strip()}"
+    hit = get_cache(key)
+    if hit is not None:
+        return hit
+    out = ''
+    try:
+        cand = raw_slug.strip()
+        if cand:
+            v_cand = f"vt-{cand}" if not cand.startswith('vt-') else cand
+            if voratoon.detail(v_cand):
+                out = v_cand
+        if not out and title:
+            # Fallback pencocokan judul via raw_slug yang dinormalisasi
+            t_slug = re.sub(r'[^a-z0-9]+', '-', (title or '').lower()).strip('-')
+            if t_slug and t_slug != cand:
+                v_cand = f"vt-{t_slug}"
+                if voratoon.detail(v_cand):
+                    out = v_cand
+    except Exception:
+        out = ''
+    set_cache(key, out, VORATOON_SLUG_TTL)
+    return out
+
+
 def _edge_cache(response: Response, s_maxage: int, browser: int = 60, swr: int | None = None):
     """Edge-cache respons di Vercel CDN untuk endpoint listing.
 
@@ -1969,7 +2000,20 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
         images = kiryuu_images or komiku_images
         if images:
             return images
-        # Kosong dari kedua sisi: komiku 404 = otoritatif tidak ada (404);
+
+        # Fallback ke Voratoon bila kedua sumber di atas kosong/error
+        # (mis. judul baru di komiku tapi endpoint baca upstream-nya diblokir Cloudflare).
+        try:
+            title = api._title_for_slug(slug)
+            vslug = _resolve_voratoon_slug(title, raw_slug=slug)
+            if vslug:
+                v_imgs = voratoon.chapter_images(vslug, chapter)
+                if v_imgs:
+                    return v_imgs
+        except Exception as e:
+            log.warning("voratoon fallback chapter(%s, %s) gagal: %s", slug, chapter, e)
+
+        # Kosong dari semua sisi: komiku 404 = otoritatif tidak ada (404);
         # selain itu upstream error (RequestException agar cached() melayani
         # stale bila ada, atau 502 — jangan samarkan jadi 404).
         if komiku_err == 404:
@@ -2207,7 +2251,7 @@ def _img_referer(url):
     """Referer per-request berdasarkan host sumber (bukan mutasi session bersama)."""
     low = url.lower()
     if 'voratoon.com' in low or 'voratoon.id' in low:
-        return 'https://v5.voratoon.com/'
+        return 'https://v9.voratoon.com/'
     if 'kiryuu.to' in low or 'yuucdn.com' in low or 'uqni.net' in low:
         return 'https://v7.kiryuu.to/'
     return 'https://komiku.org/'
