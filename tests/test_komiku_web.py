@@ -177,6 +177,67 @@ class CatalogParseTest(unittest.TestCase):
         self.assertEqual([x["slug"] for x in g], ["action", "apocalypse", "dark-fantasy"])
         self.assertEqual(g[0]["name"], "Action")
 
+    def test_detail_parsing(self):
+        # Di HTML komiku.org, chapter tampil descending (chapter terbaru di atas).
+        # komiku_web.detail membalik urutan (reverse) agar ascending (Ch 1 ... Ch N)
+        # seperti format standar API zomic.
+        html = """
+        <h1>Komik <span itemprop="name">Test Comic</span></h1>
+        <div class="ims"><img src="https://thumbnail.komiku.to/img/test.jpg?w=500"></div>
+        <table>
+          <tr><td>Jenis Komik:</td><td>Manhwa</td></tr>
+          <tr><td>Status:</td><td>Ongoing</td></tr>
+          <tr><td>Pengarang:</td><td>Author A</td></tr>
+        </table>
+        <p itemprop="description">Sinopsis komik ini.</p>
+        <ul class="genre">
+          <li>Action</li><li>Comedy</li>
+        </ul>
+        <table>
+          <tr>
+            <td class="judulseries"><a href="/test-comic-chapter-2/"><span>Chapter 2</span></a></td>
+            <td class="tanggalseries">02/01/2026</td>
+          </tr>
+          <tr>
+            <td class="judulseries"><a href="/test-comic-chapter-1/"><span>Chapter 1</span></a></td>
+            <td class="tanggalseries">01/01/2026</td>
+          </tr>
+        </table>
+        """
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = html
+        with patch("komiku_web.retry_get", return_value=mock_resp):
+            d = self.web.detail("test-comic")
+        self.assertIsNotNone(d)
+        self.assertEqual(d["title"], "Test Comic")
+        self.assertEqual(d["cover"], "https://thumbnail.komiku.to/img/test.jpg")
+        self.assertEqual(d["type"], "Manhwa")
+        self.assertEqual(d["author"], "Author A")
+        self.assertEqual(d["sinopsis"], "Sinopsis komik ini.")
+        self.assertEqual(d["total_chapters"], 2)
+        self.assertEqual(d["chapters"][0]["ch"], "1")
+        self.assertEqual(d["chapters"][1]["ch"], "2")
+
+    def test_chapter_parsing(self):
+        html = """
+        <div id="Baca_Komik">
+          <img src="https://img.komiku.org/komiku-promosi.webp">
+          <img src="https://img.komiku.org/upload/1.webp">
+          <img src="https://img.komiku.org/upload/2.webp">
+        </div>
+        <div id="comment-section"></div>
+        """
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = html
+        with patch("komiku_web.retry_get", return_value=mock_resp):
+            imgs = self.web.chapter("test-comic", "1")
+        self.assertEqual(imgs, [
+            "https://img.komiku.org/upload/1.webp",
+            "https://img.komiku.org/upload/2.webp"
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

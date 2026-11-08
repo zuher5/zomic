@@ -329,9 +329,17 @@ class KomikuAPI:
         """
         try:
             d = self._detail_json(slug)
+            if isinstance(d, dict) and d.get('title'):
+                return d.get('title')
         except Exception:
-            return ''
-        return (d.get('title') or '') if isinstance(d, dict) else ''
+            pass
+        try:
+            d = web.detail(slug)
+            if isinstance(d, dict) and d.get('title'):
+                return d.get('title')
+        except Exception:
+            pass
+        return ''
 
     def _baca_slug(self, slug):
         """Slug namespace baca-chapter yang benar, otoritatif dari apiLink
@@ -1881,7 +1889,21 @@ def detail(slug: str, response: Response = None):
     def _detail():
         def _komiku():
             try:
-                return (api.detail(slug), 0)
+                d = api.detail(slug)
+                if d:
+                    return (d, 0)
+            except requests.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 502
+                if code == 404:
+                    return (None, 404)
+            except requests.RequestException:
+                pass
+            # Fallback ke direct scraping komiku_web bila REST API gagal/402/5xx
+            try:
+                d = web.detail(slug)
+                if d:
+                    return (d, 0)
+                return (None, 404)
             except requests.HTTPError as e:
                 code = e.response.status_code if e.response is not None else 502
                 return (None, code)
@@ -1928,7 +1950,19 @@ def detail(slug: str, response: Response = None):
             if not kiryuu_d.get('similar'):
                 kiryuu_d['similar'] = _similar_from_kiryuu_genre(kiryuu, kiryuu_d, slug)
             return kiryuu_d
-        # Keduanya tanpa data: komiku 404 = otoritatif tidak ada (404);
+
+        # Fallback ke Voratoon bila slug ada di Voratoon
+        try:
+            vslug = _resolve_voratoon_slug(_humanize_slug(slug), raw_slug=slug)
+            if vslug:
+                vd = voratoon.detail(vslug)
+                if vd:
+                    vd['source'] = 'voratoon'
+                    return vd
+        except Exception as e:
+            log.warning("voratoon fallback detail(%s) gagal: %s", slug, e)
+
+        # Semua tanpa data: komiku 404 = otoritatif tidak ada (404);
         # selain itu upstream error (502 via cached(), dapat stale bila ada).
         if komiku_err == 404:
             raise HTTPException(status_code=404, detail="komik tidak ditemukan")
@@ -1988,8 +2022,24 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
             return ([], 502)
 
         def _komiku():
+            last_err = 0
             try:
-                return (api.chapter(slug, chapter), 0)
+                imgs = api.chapter(slug, chapter)
+                if imgs:
+                    return (imgs, 0)
+            except requests.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 502
+                if code == 404:
+                    return ([], 404)
+                last_err = code
+            except requests.RequestException:
+                last_err = 502
+            # Fallback ke direct scraping komiku_web bila REST API gagal
+            try:
+                imgs = web.chapter(slug, chapter)
+                if imgs:
+                    return (imgs, 0)
+                return ([], last_err or 404)
             except requests.HTTPError as e:
                 code = e.response.status_code if e.response is not None else 502
                 return ([], code)
@@ -2028,7 +2078,7 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
 # --- IMAGE PROXY (cover, optimized) ---
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
 # open proxy / vektor SSRF (bisa dipakai menembak jaringan internal).
-IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'westmanga.blog', 'komik.im', 'klikcdn.com', 'softdevices.my.id', 'voratoon.com', 'voratoon.id', 'blogger.googleusercontent.com', 'cdn.jsdelivr.net', 'shngm.id')
+IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'westmanga.blog', 'komik.im', 'klikcdn.com', 'softdevices.my.id', 'voratoon.com', 'voratoon.id', 'blogger.googleusercontent.com', 'cdn.jsdelivr.net', 'shngm.id', 'komikid.org')
 # CDN gambar bisa berganti di luar kontrol kita (dulu image*.komiku.to,
 # sekarang cdnkuma.my.id). Tambahan suffix via env tanpa redeploy kode:
 # IMG_HOST_SUFFIXES_EXTRA="cdn-baru.example.com,cdn-lain.example.net"

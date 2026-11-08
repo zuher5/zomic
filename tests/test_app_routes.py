@@ -351,6 +351,31 @@ class VoratoonRoutesTest(unittest.TestCase):
         slugs = [it['slug'] for it in res.json()['items']]
         self.assertIn('vt-v-magic', slugs)
 
+    def test_detail_komiku_web_fallback(self):
+        import requests
+        payload = {
+            'title': 'Fallback Comic', 'slug': 'fallback-comic',
+            'cover': 'https://thumbnail.komiku.to/img/fb.jpg',
+            'chapters': [{'title': 'Chapter 1', 'ch': '1', 'date': ''}],
+            'total_chapters': 1,
+        }
+        with patch.object(app_module.api, 'detail', side_effect=requests.RequestException("402")), \
+             patch.object(app_module.web, 'detail', return_value=payload), \
+             patch.object(app_module.kiryuu, 'detail', side_effect=requests.HTTPError("404")):
+            res = self.client.get('/api/detail/fallback-comic')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['title'], 'Fallback Comic')
+
+    def test_chapter_komiku_web_fallback(self):
+        import requests
+        imgs = ['https://img.komiku.org/upload/1.webp']
+        with patch.object(app_module.api, 'chapter', side_effect=requests.RequestException("402")), \
+             patch.object(app_module.web, 'chapter', return_value=imgs), \
+             patch.object(app_module.kiryuu, 'chapter_images', return_value=[]):
+            res = self.client.get('/api/chapter/fallback-comic/1')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), imgs)
+
     def test_detail_voratoon_slug(self):
         payload = {
             'title': 'Magic Emperor', 'slug': 'vt-magic-emperor',

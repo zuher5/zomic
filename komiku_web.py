@@ -498,3 +498,141 @@ class KomikuWeb:
             label = _text(name) or slug.replace('-', ' ').title()
             out.append({'slug': slug, 'name': label})
         return sorted(out, key=lambda g: g['name'].lower())
+
+    def detail(self, slug):
+        """Detail komik langsung dari scraping HTML komiku.org."""
+        slug = (slug or '').strip().strip('/')
+        if not slug:
+            return None
+        # Coba format umum /manga/{slug}/ lalu /{slug}/
+        urls = [f"{SITE}/manga/{slug}/", f"{SITE}/{slug}/"]
+        raw = ''
+        last_resp = None
+        for u in urls:
+            resp = retry_get(self._session(), u, timeout=10, headers={'Referer': f"{SITE}/"})
+            if resp is None:
+                continue
+            if resp.status_code == 404:
+                last_resp = resp
+                continue
+            resp.raise_for_status()
+            raw = resp.text
+            break
+
+        if not raw:
+            if last_resp is not None and last_resp.status_code == 404:
+                return None
+            raise requests.RequestException(f"gagal fetch detail komiku.org: {slug}")
+
+        m = re.search(r'<h1[^>]*itemprop="name"[^>]*>(.*?)</h1>', raw, re.DOTALL)
+        if not m:
+            m = re.search(r'<h1[^>]*>(.*?)</h1>', raw, re.DOTALL)
+        title = _text(m.group(1)) if m else _humanize_slug(slug)
+        title = re.sub(r'^Komik\s+', '', title, flags=re.I).strip()
+
+        m_cov = re.search(r'<div[^>]*class="ims"[^>]*>.*?<img[^>]*src="([^"]+)"', raw, re.DOTALL)
+        cover = m_cov.group(1).strip() if m_cov else ''
+        if cover.startswith('//'):
+            cover = 'https:' + cover
+        cover = cover.split('?')[0]
+
+        info = {}
+        for row in re.findall(r'<tr[^>]*>.*?<td[^>]*>(.*?)</td>.*?<td[^>]*>(.*?)</td>', raw, re.DOTALL):
+            k = _text(row[0]).rstrip(':')
+            v = _text(row[1])
+            if k and v:
+                info[k] = v
+
+        m_sin = re.search(r'<p[^>]*itemprop="description"[^>]*>(.*?)</p>', raw, re.DOTALL)
+        if not m_sin:
+            m_sin = re.search(r'<p[^>]*class="desc"[^>]*>(.*?)</p>', raw, re.DOTALL)
+        sinopsis = _text(m_sin.group(1)) if m_sin else '-'
+
+        genres = []
+        m_genre_sec = re.search(r'<ul[^>]*class="genre"[^>]*>(.*?)</ul>', raw, re.DOTALL)
+        if m_genre_sec:
+            genres = [_text(g) for g in re.findall(r'<li[^>]*>(.*?)</li>', m_genre_sec.group(1), re.DOTALL) if _text(g)]
+        if not genres and info.get('Genre'):
+            genres = [normalize_genre(g) for g in re.split(r'\s{2,}|,', info['Genre']) if g.strip()]
+        else:
+            genres = [normalize_genre(g) for g in genres]
+
+        ch_rows = re.findall(r'<tr[^>]*>.*?<td[^>]*class="judulseries"[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>.*?<td[^>]*class="tanggalseries"[^>]*>(.*?)</td>', raw, re.DOTALL)
+        chapters = []
+        for link, raw_title, date in ch_rows:
+            t_clean = _text(raw_title)
+            d_clean = _text(date)
+            m_ch = re.search(r'chapter-(\d+(?:[.-]\d+)?)', link, re.I)
+            if not m_ch:
+                m_ch = re.search(r'(\d+(?:[.-]\d+)?)', t_clean)
+            ch_num = m_ch.group(1) if m_ch else ''
+            chapters.append({
+                'title': t_clean or f"Chapter {ch_num}",
+                'ch': ch_num,
+                'date': d_clean,
+            })
+        chapters.reverse()
+
+        return {
+            'title': title or _humanize_slug(slug),
+            'slug': slug,
+            'alt_title': info.get('Judul Alternatif', ''),
+            'sinopsis': sinopsis,
+            'cover': cover,
+            'genre': genres,
+            'type': info.get('Jenis Komik', info.get('Tipe', '')),
+            'status': info.get('Status', ''),
+            'author': info.get('Pengarang', info.get('Author', '')),
+            'rating': info.get('Rating', ''),
+            'readers': info.get('Pembaca', ''),
+            'info': info,
+            'similar': [],
+            'chapters': chapters,
+            'total_chapters': len(chapters),
+        }
+
+    def chapter(self, slug, chapter_num):
+        """Ambil list URL gambar satu chapter langsung dari HTML komiku.org."""
+        slug = (slug or '').strip().strip('/')
+        ch_clean = str(chapter_num).strip().lstrip('0') or '0'
+        # Coba variasi URL chapter komiku.org
+        candidates = [
+            f"{SITE}/{slug}-chapter-{chapter_num}/",
+            f"{SITE}/{slug}-chapter-{ch_clean}/",
+            f"{SITE}/ch/{slug}-chapter-{chapter_num}/",
+        ]
+        # Hilangkan prefix manga- / komik- bila ada
+        sub_slug = re.sub(r'^(manga|komik)-', '', slug)
+        if sub_slug != slug:
+            candidates.append(f"{SITE}/{sub_slug}-chapter-{chapter_num}/")
+            candidates.append(f"{SITE}/{sub_slug}-chapter-{ch_clean}/")
+
+        for u in candidates:
+            try:
+                resp = retry_get(self._session(), u, timeout=10, headers={'Referer': f"{SITE}/"})
+                if resp is None or resp.status_code != 200:
+                    continue
+                html_txt = resp.text
+                idx1 = html_txt.find('id="Baca_Komik"')
+                if idx1 == -1:
+                    continue
+                idx2 = html_txt.find('id="comment-section', idx1)
+                baca_section = html_txt[idx1:idx2] if idx2 != -1 else html_txt[idx1:idx1 + 100000]
+
+                imgs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', baca_section)
+                valid = []
+                for img in imgs:
+                    img = img.strip()
+                    if img.startswith('//'):
+                        img = 'https:' + img
+                    if not img.startswith(('http://', 'https://')):
+                        continue
+                    if any(bad in img for bad in ('komiku-promosi', 'iklan', '/asset/', 'data:image')):
+                        continue
+                    valid.append(img)
+                if valid:
+                    return valid
+            except Exception as e:
+                log.warning("komiku_web.chapter(%s, %s) pada %s gagal: %s", slug, chapter_num, u, e)
+        return []
+
