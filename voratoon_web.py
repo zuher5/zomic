@@ -18,15 +18,21 @@ import requests
 
 log = logging.getLogger("zomic.voratoon")
 
-BASE = "https://v9.voratoon.com"
+BASE = "https://13.voratoon.com"
 
-# --- Resolver override utk v6 / v9 voratoon.com ---
-# v5/v6 dialihkan ke v9.voratoon.com. DNS perangkat kadang gagal me-resolve
-# subdomain voratoon baru (No address associated).
+# --- Resolver override utk v6 / v9 / 13 voratoon.com ---
+# Domain Voratoon berganti subdomain (v5 -> v6 -> v9 -> 13.voratoon.com).
+# DNS perangkat kadang gagal me-resolve subdomain baru (No address associated).
 # SNI/TLS tetap memakai hostname asli dari URL — getaddrinfo dipaksa
 # mengembalikan IP Cloudflare-nya via DNS-over-HTTPS bila DNS lokal gagal.
 _ORIG_GETADDRINFO = socket.getaddrinfo
-_VORATOON_HOSTS = ('v5.voratoon.com', 'www.v5.voratoon.com', 'v6.voratoon.com', 'www.v6.voratoon.com', 'v9.voratoon.com', 'www.v9.voratoon.com')
+_VORATOON_HOSTS = (
+    'v5.voratoon.com', 'www.v5.voratoon.com',
+    'v6.voratoon.com', 'www.v6.voratoon.com',
+    'v9.voratoon.com', 'www.v9.voratoon.com',
+    '13.voratoon.com', 'www.13.voratoon.com',
+    'voratoon.com', 'www.voratoon.com'
+)
 _VORATOON_FALLBACK_IPS = ('104.21.39.242', '172.67.172.41')
 
 
@@ -34,7 +40,7 @@ def _resolve_voratoon_ips():
     try:
         import urllib.request
         req = urllib.request.Request(
-            'https://cloudflare-dns.com/dns-query?name=v9.voratoon.com&type=A',
+            'https://cloudflare-dns.com/dns-query?name=13.voratoon.com&type=A',
             headers={'accept': 'application/dns-json'})
         data = json.load(urllib.request.urlopen(req, timeout=5))
         ips = [a['data'] for a in data.get('Answer', []) if a.get('type') == 1]

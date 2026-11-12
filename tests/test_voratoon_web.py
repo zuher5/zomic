@@ -124,7 +124,7 @@ class TestVoratoonWeb(unittest.TestCase):
     def test_helpers(self):
         self.assertEqual(_clean_text("<b>Halo &amp; Dunia</b> <!-- comment -->"), "Halo & Dunia")
         self.assertEqual(_humanize_slug("magic-emperor"), "Magic Emperor")
-        self.assertEqual(_fix_cover("/api/cover?src=abc"), "https://v9.voratoon.com/api/cover?src=abc")
+        self.assertEqual(_fix_cover("/api/cover?src=abc"), "https://13.voratoon.com/api/cover?src=abc")
         self.assertEqual(_fix_cover("https://cvr.voratoon.id/img.webp"), "https://cvr.voratoon.id/img.webp")
 
     def test_latest(self):
@@ -170,7 +170,7 @@ class TestVoratoonWeb(unittest.TestCase):
             self.assertEqual(items[0]['slug'], 'vt-magic-emperor')
             self.assertEqual(items[0]['title'], 'Magic Emperor')
             self.assertEqual(items[0]['type'], 'Manhwa')
-            self.assertTrue(items[0]['cover'].startswith('https://v9.voratoon.com/api/cover'))
+            self.assertTrue(items[0]['cover'].startswith('https://13.voratoon.com/api/cover'))
 
     def test_detail(self):
         web, fake_get = _mock_web({'/series/magic-emperor': DETAIL_HTML})

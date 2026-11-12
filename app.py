@@ -244,12 +244,19 @@ class KomikuAPI:
         # Host dikenal (thumbnail.komiku.*, img.komiku.org) aman untuk semua
         # pola path: manga_thumbnail-*, img/upload/*, new/img/*.
         # Host lain ditolak karena tidak diverifikasi.
-        if not any(kw in host for kw in ('thumbnail.komiku', 'img.komiku')):
+        if not any(kw in host for kw in ('thumbnail.komiku', 'img.komiku', 'komikid.org')):
             return ''
         return cover
 
     def detail(self, slug):
-        d = self._get(f"/detail-komik/{slug}")
+        try:
+            d = self._get(f"/detail-komik/{slug}")
+        except Exception:
+            # Fallback ke direct scraping komiku.org bila REST API mati
+            d_web = web.detail(slug)
+            if d_web:
+                return d_web
+            raise
         cover = d.get('thumbnail') or ''
         if cover.startswith('//'):
             cover = 'https:' + cover
@@ -1820,10 +1827,18 @@ def recommended(response: Response = None):
 @app.get("/api/colored")
 def colored(response: Response = None):
     def _colored():
-        komiku_items = api.colored()
-        # kiryuu tidak punya endpoint berwarna, tapi kita bisa ambil dari home()
-        # yang sudah diurutkan berdasarkan update terbaru
-        return komiku_items
+        try:
+            komiku_items = api.colored()
+            if komiku_items:
+                return komiku_items
+        except Exception as e:
+            log.warning("api.colored() gagal: %s", e)
+        # Fallback ke komik berwarna dari kiryuu/voratoon bila api-komiku mati
+        try:
+            home = kiryuu.home(1).get('items', [])
+            return [c for c in home if c.get('colored') or str(c.get('type') or '').lower() in ('manhwa', 'manhua')][:20]
+        except Exception:
+            return []
 
     data = cached("colored", _colored, ttl=1800)
     _edge_cache(response, s_maxage=600, swr=1800)
@@ -2078,7 +2093,13 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
 # --- IMAGE PROXY (cover, optimized) ---
 # Host gambar yang diizinkan diproxy. Tanpa allowlist, /api/img jadi
 # open proxy / vektor SSRF (bisa dipakai menembak jaringan internal).
-IMG_HOST_SUFFIXES = ('komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to', 'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'westmanga.blog', 'komik.im', 'klikcdn.com', 'softdevices.my.id', 'voratoon.com', 'voratoon.id', 'blogger.googleusercontent.com', 'cdn.jsdelivr.net', 'shngm.id', 'komikid.org')
+IMG_HOST_SUFFIXES = (
+    'komiku.org', 'komiku.id', 'komiku.to', 'kiryuu.to', 'v7.kiryuu.to',
+    'kiryuu.id', 'kiryuu.io', 'cdn.kiryuu.io', '88cdn.cloud',
+    'yuucdn.com', 'uqni.net', 'cdnkuma.my.id', 'westmanga.blog', 'komik.im',
+    'klikcdn.com', 'softdevices.my.id', 'voratoon.com', 'voratoon.id',
+    'blogger.googleusercontent.com', 'cdn.jsdelivr.net', 'shngm.id', 'komikid.org'
+)
 # CDN gambar bisa berganti di luar kontrol kita (dulu image*.komiku.to,
 # sekarang cdnkuma.my.id). Tambahan suffix via env tanpa redeploy kode:
 # IMG_HOST_SUFFIXES_EXTRA="cdn-baru.example.com,cdn-lain.example.net"
@@ -2301,8 +2322,8 @@ def _img_referer(url):
     """Referer per-request berdasarkan host sumber (bukan mutasi session bersama)."""
     low = url.lower()
     if 'voratoon.com' in low or 'voratoon.id' in low:
-        return 'https://v9.voratoon.com/'
-    if 'kiryuu.to' in low or 'yuucdn.com' in low or 'uqni.net' in low:
+        return 'https://13.voratoon.com/'
+    if 'kiryuu' in low or 'yuucdn.com' in low or 'uqni.net' in low or '88cdn.cloud' in low:
         return 'https://v7.kiryuu.to/'
     return 'https://komiku.org/'
 
