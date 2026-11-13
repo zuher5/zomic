@@ -2005,7 +2005,16 @@ def chapter(slug: str, chapter: str = Path(..., pattern=r'^\d+([.-]\d+)?$'), res
 
     if slug.startswith('vt-'):
         def _vt_chapter():
+            # Voratoon mengunci gambar chapter di balik pagesTicket + Turnstile,
+            # jadi server sering tidak bisa mengambilnya. Coba kiryuu dengan
+            # slug yang sama sebelum menyerah.
             imgs = voratoon.chapter_images(slug, chapter)
+            if not imgs:
+                try:
+                    imgs = kiryuu.chapter_images(slug[3:], chapter)
+                except Exception as e:
+                    log.warning("kiryuu fallback vt chapter(%s, %s) gagal: %s", slug, chapter, e)
+                    imgs = []
             if not imgs:
                 raise HTTPException(status_code=404, detail="chapter tidak ditemukan")
             return imgs

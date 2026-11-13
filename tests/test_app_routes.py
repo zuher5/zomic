@@ -402,9 +402,19 @@ class VoratoonRoutesTest(unittest.TestCase):
         m.assert_called_once_with('vt-magic-emperor', '1')
 
     def test_chapter_voratoon_404(self):
-        with patch.object(app_module.voratoon, 'chapter_images', return_value=[]):
+        with patch.object(app_module.voratoon, 'chapter_images', return_value=[]), \
+             patch.object(app_module.kiryuu, 'chapter_images', return_value=[]):
             res = self.client.get('/api/chapter/vt-magic-emperor/999')
         self.assertEqual(res.status_code, 404)
+
+    def test_chapter_voratoon_falls_back_to_kiryuu(self):
+        imgs = ['https://cdn.kiryuu.to/img/01.jpg']
+        with patch.object(app_module.voratoon, 'chapter_images', return_value=[]), \
+             patch.object(app_module.kiryuu, 'chapter_images', return_value=imgs) as km:
+            res = self.client.get('/api/chapter/vt-magic-emperor/1')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), imgs)
+        km.assert_called_once_with('magic-emperor', '1')
 
     def test_latest_includes_shinigami(self):
         shn_items = [{'title': 'Demonic Emperor', 'slug': 'shn-abc', 'cover': '',
